@@ -5,3 +5,6 @@ all:
 	. /opt/venv/bin/activate && pyinstaller --onefile script-ui.py
 	. /opt/venv/bin/activate && pyinstaller --onefile tostruct.py
 	. /opt/venv/bin/activate && pyinstaller --onefile kdev.py
+	. /opt/venv/bin/activate && pyinstaller --onefile convert-time.py
+	. /opt/venv/bin/activate && pyinstaller --onefile convert-excel.py
+	. /opt/venv/bin/activate && pyinstaller --onefile json_counter.py
