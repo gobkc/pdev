@@ -8,3 +8,5 @@ all:
 	. /opt/venv/bin/activate && pyinstaller --onefile convert-time.py
 	. /opt/venv/bin/activate && pyinstaller --onefile convert-excel.py
 	. /opt/venv/bin/activate && pyinstaller --onefile json_counter.py
+	. /opt/venv/bin/activate && pyinstaller --onefile csv_not_existed.py
+	. /opt/venv/bin/activate && pyinstaller --onefile json_total.py

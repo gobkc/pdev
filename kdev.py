@@ -7,6 +7,20 @@ from tkinter import ttk, scrolledtext, simpledialog, messagebox,filedialog
 CONFIG_DIR = Path.home() / ".config" / "kdev"
 CACHE_FILE = CONFIG_DIR / ".kdev.js"
 
+def find_kubectl():
+    """
+    自动寻找 kubectl 可执行文件路径
+    优先 /usr/local/bin, 再 /usr/bin, 再 PATH
+    """
+    # 先固定路径查找
+    for path in ["/usr/local/bin/kubectl", "/usr/bin/kubectl"]:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    # fallback: PATH 中查找
+    kubectl = shutil.which("kubectl")
+    if kubectl:
+        return kubectl
+    raise FileNotFoundError("kubectl 可执行文件未找到，请确认已安装")
 
 def ensure_cache():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -38,12 +52,39 @@ def command_insert(cmd_area,msg):
     cmd_area.see(tk.END)
     cmd_area.update()
 
-def run_kubectl(args, cmd_area=None):
-    cmd = ["kubectl"] + args
-    if cmd_area: command_insert(cmd_area," ".join(cmd))
-    res = subprocess.run(cmd,capture_output=True,text=True)
-    if res.returncode!=0: raise RuntimeError(res.stderr.strip())
+def run_kubectl(args, cmd_area=None, kubeconfig=None):
+    """
+    执行 kubectl 命令，确保第一次调用就生效
+    :param args: kubectl 参数列表
+    :param cmd_area: 可选回调，将命令插入 UI 或日志
+    :param kubeconfig: 可选 kubeconfig 路径
+    :return: stdout 字符串
+    """
+    kubectl_path = find_kubectl()
+    cmd = [kubectl_path] + args
+
+    # 复制环境变量
+    env = os.environ.copy()
+
+    # 显示指定 PATH，保证 kubectl 可执行
+    env["PATH"] = "/usr/local/bin:/usr/bin:" + env.get("PATH", "")
+
+    # 如果提供 kubeconfig，显示指定
+    if kubeconfig:
+        env["KUBECONFIG"] = kubeconfig
+
+    # 如果有 UI 日志插入
+    if cmd_area:
+        command_insert(cmd_area, " ".join(cmd))
+
+    # 执行命令
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env)
+
+    if res.returncode != 0:
+        raise RuntimeError(res.stderr.strip())
+
     return res.stdout.strip()
+
 
 def list_contexts(force=False, cmd_area=None):
     if not force:
