@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext
 import csv
 import os
+import tkinter as tk
+from tkinter import filedialog, messagebox, scrolledtext
+
 
 # --- SQL 处理函数 ---
 def sql_quote(val):
@@ -14,70 +15,136 @@ def sql_quote(val):
     s = str(val).strip()
     return "'" + s.replace("'", "''") + "'"
 
+
 def generate_sql(csv_file):
     FIELD_DEPT_ID = "Department ID"
+    FIELD_PARENT_DEPT_ID = "Parent Department ID"
     FIELD_DEPT_NAME = "Department Name"
     FIELD_STATE = "Wilayat Code"
 
     sql_lines = []
     skipped_rows = 0
 
-    with open(csv_file, newline='', encoding='utf-8-sig') as f:
+    with open(csv_file, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
-        # 去除字段名前后空格
         reader.fieldnames = [name.strip() for name in reader.fieldnames]
 
-        # 检查必要字段是否存在
-        missing = [fld for fld in (FIELD_DEPT_ID, FIELD_DEPT_NAME, FIELD_STATE) if fld not in reader.fieldnames]
+        required = [FIELD_DEPT_ID, FIELD_PARENT_DEPT_ID, FIELD_DEPT_NAME, FIELD_STATE]
+        missing = [f for f in required if f not in reader.fieldnames]
         if missing:
-            raise ValueError("CSV 中缺少以下字段: {}".format(", ".join(missing)))
+            raise ValueError("CSV 中缺少字段: " + ", ".join(missing))
 
         for row in reader:
-            # 去掉每个字段值的前后空格
-            row = {k.strip(): (v.strip() if v is not None else "") for k, v in row.items()}
+            row = {k.strip(): (v.strip() if v else "") for k, v in row.items()}
 
-            dept_id = row.get(FIELD_DEPT_ID, "")
-            dept_name = row.get(FIELD_DEPT_NAME, "")
-            state_val = row.get(FIELD_STATE, "")
+            dept_id = row[FIELD_DEPT_ID]
+            parent_dept_id = row[FIELD_PARENT_DEPT_ID]
+            dept_name = row[FIELD_DEPT_NAME]
+            state_val = row[FIELD_STATE]
 
             if not dept_id:
                 skipped_rows += 1
                 continue
 
-            # 映射到 org_chart 字段
-            group_name = dept_name
-            employee_position_number = dept_id
-            city = state_val
-            country = "Oman"
-            region = ""
-            province = city[:2] if len(city) >= 4 else ""
+            province = state_val[:2] if len(state_val) >= 4 else ""
 
-            set_clauses = [
-                f"group_name={sql_quote(group_name)}",
-                f"country={sql_quote(country)}",
-                f"province={sql_quote(province)}",
-                f"city={sql_quote(city)}",
-                f"region={sql_quote(region)}",
-            ]
-
-            sql = (
-                "UPDATE org_chart SET " +
-                ", ".join(set_clauses) +
-                f" WHERE employee_position_number={sql_quote(employee_position_number)};"
+            # -------- UPDATE --------
+            sql_lines.append(
+                f"""
+UPDATE org_chart SET
+    group_name = {sql_quote(dept_name)},
+    supervisor_position_number = {sql_quote(parent_dept_id)},
+    country = 'Oman',
+    province = {sql_quote(province)},
+    city = {sql_quote(state_val)}
+WHERE employee_position_number = {sql_quote(dept_id)};
+""".strip()
             )
-            sql_lines.append(sql)
+
+            # -------- INSERT (不存在时) --------
+            sql_lines.append(
+                f"""
+INSERT INTO org_chart (
+    employee_position_number,
+    supervisor_position_number,
+    group_name,
+    description,
+    country,
+    province,
+    city
+)
+SELECT
+    {sql_quote(dept_id)},
+    {sql_quote(parent_dept_id)},
+    {sql_quote(dept_name)},
+    '(pending)',
+    'Oman',
+    {sql_quote(province)},
+    {sql_quote(state_val)}
+WHERE NOT EXISTS (
+    SELECT 1 FROM org_chart
+    WHERE employee_position_number = {sql_quote(dept_id)}
+);
+""".strip()
+            )
+
+    # -------- 后处理 SQL --------
+
+    # Step 1：写 org_id
+    sql_lines.append(
+        """
+-- Step 1: propagate org_id
+UPDATE org_chart
+SET org_id = (
+    SELECT org_id
+    FROM org_chart
+    WHERE employee_position_number = '623D9EF0-9A50-4558-B83D-8CC27A1A0EDB'
+    LIMIT 1
+), company_id = (
+    SELECT company_id
+    FROM org_chart
+    WHERE employee_position_number = '623D9EF0-9A50-4558-B83D-8CC27A1A0EDB'
+    LIMIT 1
+)
+WHERE description = '(pending)';
+""".strip()
+    )
+
+    # Step 2：补 parent_id
+    sql_lines.append(
+        """
+-- Step 2: fill parent_id
+UPDATE org_chart AS child
+SET parent_id = parent.id
+FROM org_chart AS parent
+WHERE child.parent_id = 0
+  AND child.org_id = parent.org_id
+  AND child.supervisor_position_number = parent.employee_position_number;
+""".strip()
+    )
+
+    # Step 3：remove pending
+    sql_lines.append(
+        """
+-- Step 3: remove pending
+UPDATE org_chart
+SET description = ''
+WHERE description = '(pending)';
+""".strip()
+    )
 
     return sql_lines, skipped_rows
+
 
 # --- GUI 事件处理 ---
 def choose_file():
     file_path = filedialog.askopenfilename(
-        title="选择 CSV 文件",
-        filetypes=[("CSV Files", "*.csv")]
+        title="选择 CSV 文件", filetypes=[("CSV Files", "*.csv")]
     )
     if file_path:
         entry_file_path.delete(0, tk.END)
         entry_file_path.insert(0, file_path)
+
 
 def generate_and_save():
     csv_file = entry_file_path.get().strip()
@@ -93,9 +160,12 @@ def generate_and_save():
                 f.write(line + "\n")
         text_log.delete("1.0", tk.END)
         text_log.insert(tk.END, f"成功生成 SQL 文件: {sql_file_name}\n")
-        text_log.insert(tk.END, f"生成行数: {len(sql_lines)}, 跳过空 Department ID 行: {skipped}\n")
+        text_log.insert(
+            tk.END, f"生成行数: {len(sql_lines)}, 跳过空 Department ID 行: {skipped}\n"
+        )
     except Exception as e:
         messagebox.showerror("错误", str(e))
+
 
 # --- GUI 主窗口 ---
 root = tk.Tk()
