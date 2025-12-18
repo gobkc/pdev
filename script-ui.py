@@ -21,7 +21,7 @@ def generate_sql(csv_file):
     FIELD_PARENT_DEPT_ID = "Parent Department ID"
     FIELD_DEPT_NAME = "Department Name"
     FIELD_STATE = "Wilayat Code"
-
+    FIELD_LOCATION = "Location Code"
     sql_lines = []
     skipped_rows = 0
 
@@ -41,6 +41,7 @@ def generate_sql(csv_file):
             parent_dept_id = row[FIELD_PARENT_DEPT_ID]
             dept_name = row[FIELD_DEPT_NAME]
             state_val = row[FIELD_STATE]
+            region = row[FIELD_LOCATION]
 
             if not dept_id:
                 skipped_rows += 1
@@ -56,6 +57,7 @@ UPDATE org_chart SET
     supervisor_position_number = {sql_quote(parent_dept_id)},
     country = 'Oman',
     province = {sql_quote(province)},
+    region = {sql_quote(region)},
     city = {sql_quote(state_val)}
 WHERE employee_position_number = {sql_quote(dept_id)};
 """.strip()
@@ -71,6 +73,7 @@ INSERT INTO org_chart (
     description,
     country,
     province,
+    region,
     city
 )
 SELECT
@@ -80,6 +83,7 @@ SELECT
     '(pending)',
     'Oman',
     {sql_quote(province)},
+    {sql_quote(region)},
     {sql_quote(state_val)}
 WHERE NOT EXISTS (
     SELECT 1 FROM org_chart
@@ -110,7 +114,22 @@ WHERE description = '(pending)';
 """.strip()
     )
 
-    # Step 2：补 parent_id
+    # Step 2：处理其他level 1,以：623D9EF0-9A50-4558-B83D-8CC27A1A0EDB为准
+    sql_lines.append(
+        """
+-- Step 2: propagate org_id
+UPDATE org_chart
+SET parent_id = (
+    SELECT parent_id
+    FROM org_chart
+    WHERE employee_position_number = '623D9EF0-9A50-4558-B83D-8CC27A1A0EDB'
+    LIMIT 1
+)
+WHERE supervisor_position_number = '00000000-0000-0000-0000-000000000000' AND employee_position_number!='623D9EF0-9A50-4558-B83D-8CC27A1A0EDB';
+""".strip()
+    )
+
+    # Step 3：补 parent_id
     sql_lines.append(
         """
 -- Step 2: fill parent_id
@@ -119,16 +138,17 @@ SET parent_id = parent.id
 FROM org_chart AS parent
 WHERE child.parent_id = 0
   AND child.org_id = parent.org_id
+  AND parent.supervisor_position_number!=''
   AND child.supervisor_position_number = parent.employee_position_number;
 """.strip()
     )
 
-    # Step 3：remove pending
+    # Step 4：remove pending
     sql_lines.append(
         """
 -- Step 3: remove pending
 UPDATE org_chart
-SET description = ''
+SET description = '', sort = id
 WHERE description = '(pending)';
 """.strip()
     )
