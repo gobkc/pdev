@@ -10,3 +10,5 @@ all:
 	. /opt/venv/bin/activate && pyinstaller --onefile json_counter.py
 	. /opt/venv/bin/activate && pyinstaller --onefile csv_not_existed.py
 	. /opt/venv/bin/activate && pyinstaller --onefile json_total.py
+	. /opt/venv/bin/activate && pyinstaller --onefile --hidden-import=flat_dark_theme dark.py
+	. /opt/venv/bin/activate && pyinstaller --onefile member.py

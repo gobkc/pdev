@@ -20,7 +20,7 @@ def generate_sql(csv_file):
     FIELD_DEPT_ID = "Department ID"
     FIELD_PARENT_DEPT_ID = "Parent Department ID"
     FIELD_DEPT_NAME = "Department Name"
-    FIELD_STATE = "Wilayat Code"
+    FIELD_STATE = "Code"
     FIELD_LOCATION = "Location Code"
     sql_lines = []
     skipped_rows = 0
@@ -136,9 +136,8 @@ WHERE supervisor_position_number = '00000000-0000-0000-0000-000000000000' AND em
 UPDATE org_chart AS child
 SET parent_id = parent.id
 FROM org_chart AS parent
-WHERE child.parent_id = 0
+WHERE parent.supervisor_position_number!=''
   AND child.org_id = parent.org_id
-  AND parent.supervisor_position_number!=''
   AND child.supervisor_position_number = parent.employee_position_number;
 """.strip()
     )
