@@ -342,13 +342,10 @@ class PgCodeGenApp(tk.Tk):
         "your_module/storage"
     )
 
-    // ---------- Create ----------
-    /*
-    Create{struct_name} creates a new record in {table}.
-    Demo:
-        i := &entity.{struct_name}{{...}}
-        err := Create{struct_name}(ctx, ses, i)
-    */
+    // Create{struct_name} creates a new record in {table}.
+    // Demo:
+    //    i := &entity.{struct_name}{{...}}
+    //    err := Create{struct_name}(ctx, ses, i)
     func Create{struct_name}(ctx context.Context, ses storage.Session, i *entity.{struct_name}) error {{
         sqlStr := `
     INSERT INTO "{table}" ({", ".join(insert_cols)})
@@ -361,13 +358,10 @@ class PgCodeGenApp(tk.Tk):
         return ses.QueryRow(sqlStr, args...).Scan(&i.{self.camel_case(pk_col)})
     }}
 
-    // ---------- Update ----------
-    /*
-    Update{struct_name} updates a record in {table} by primary key.
-    Demo:
-        i := &entity.{struct_name}{{...}}
-        err := Update{struct_name}(ctx, ses, i)
-    */
+    // Update{struct_name} updates a record in {table} by primary key.
+    // Demo:
+    //    i := &entity.{struct_name}{{...}}
+    //    err := Update{struct_name}(ctx, ses, i)
     func Update{struct_name}(ctx context.Context, ses storage.Session, i *entity.{struct_name}) error {{
         sqlStr := `
     UPDATE "{table}"
@@ -384,12 +378,9 @@ class PgCodeGenApp(tk.Tk):
         return err
     }}
 
-    // ---------- Delete ----------
-    /*
-    Delete{struct_name}ByID deletes a record by primary key.
-    Demo:
-        err := Delete{struct_name}ByID(ctx, ses, id)
-    */
+    // Delete{struct_name}ByID deletes a record by primary key.
+    // Demo:
+    //    err := Delete{struct_name}ByID(ctx, ses, id)
     func Delete{struct_name}ByID(ctx context.Context, ses storage.Session, id any) error {{
         sqlStr := `DELETE FROM "{table}" WHERE {sql_col_name(pk_col)} = $1`
         finalSQL := `{final_sql_template('DELETE FROM "{table}" WHERE ' + sql_col_name(pk_col) + " = $1", ["id"])}`
@@ -401,12 +392,9 @@ class PgCodeGenApp(tk.Tk):
         return err
     }}
 
-    // ---------- Get By ID ----------
-    /*
-    Get{struct_name}ById retrieves a record by primary key.
-    Demo:
-        obj, err := Get{struct_name}ById(ctx, ses, id)
-    */
+    // Get{struct_name}ById retrieves a record by primary key.
+    // Demo:
+    //    obj, err := Get{struct_name}ById(ctx, ses, id)
     func Get{struct_name}ById(ctx context.Context, ses storage.Session, id any) (i *entity.{struct_name}, err error) {{
         sqlStr := fmt.Sprintf("SELECT {col_names_sql} FROM {table} WHERE {sql_col_name(pk_col)} = $1")
         finalSQL := fmt.Sprintf(sqlStr, id)
@@ -419,12 +407,9 @@ class PgCodeGenApp(tk.Tk):
         return
     }}
 
-    // ---------- List ----------
-    /*
-    List{struct_name} lists records with optional condition, order, limit and offset.
-    Demo:
-        list, total, err := List{struct_name}(ctx, ses, "status = $1", []any{{1}}, "ORDER BY createdAt DESC", 10, 0)
-    */
+    // List{struct_name} lists records with optional condition, order, limit and offset.
+    // Demo:
+    //    list, total, err := List{struct_name}(ctx, ses, "status = $1", []any{{1}}, "ORDER BY createdAt DESC", 10, 0)
     func List{struct_name}(ctx context.Context, ses storage.Session, cond string, condArgs []any, order string, limit, offset int64) (list []*entity.{struct_name}, total int64, err error) {{
         whereSQL := ""
         args := condArgs
@@ -485,13 +470,10 @@ class PgCodeGenApp(tk.Tk):
         return
     }}
 
-    // ---------- Upsert ----------
-    /*
-    Upsert{struct_name} inserts a new record if not exist, otherwise updates.
-    Demo:
-        i := &entity.{struct_name}{{...}}
-        err := Upsert{struct_name}(ctx, ses, "status = $1", []any{{1}}, i)
-    */
+    // Upsert{struct_name} inserts a new record if not exist, otherwise updates.
+    // Demo:
+    //    i := &entity.{struct_name}{{...}}
+    //    err := Upsert{struct_name}(ctx, ses, "status = $1", []any{{1}}, i)
     func Upsert{struct_name}(ctx context.Context, ses storage.Session, cond string, condArgs []any, i *entity.{struct_name}) error {{
         list, _, err := List{struct_name}(ctx, ses, cond, condArgs, "", 1, 0)
         if err != nil {{

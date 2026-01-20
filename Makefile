@@ -1,5 +1,6 @@
 all:
 	. /opt/venv/bin/activate && pyinstaller --onefile gen-committee.py
+	. /opt/venv/bin/activate && pyinstaller --onefile match_csv.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile gen-gorm.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile jwt.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile script-ui.py
