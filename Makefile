@@ -1,6 +1,7 @@
 all:
-	. /opt/venv/bin/activate && pyinstaller --onefile gen-committee.py
-	. /opt/venv/bin/activate && pyinstaller --onefile match_csv.py
+	. /opt/venv/bin/activate && pyinstaller --onefile md.py
+	# . /opt/venv/bin/activate && pyinstaller --onefile gen-committee.py
+	# . /opt/venv/bin/activate && pyinstaller --onefile match_csv.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile gen-gorm.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile jwt.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile script-ui.py
@@ -14,5 +15,5 @@ all:
 #	. /opt/venv/bin/activate && pyinstaller --onefile --hidden-import=flat_dark_theme dark.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile member.py
 install:
-	. /opt/venv/bin/activate && pip install psycopg2-binary pyinstaller
-	sudo apt install -y python3-tk python3-psycopg2
+	. /opt/venv/bin/activate && pip install psycopg2-binary pyinstaller markdown tkhtmlview pygments weasyprint html2text tkinterweb
+	sudo apt install -y python3-tk python3-psycopg2 python3-reportlab
