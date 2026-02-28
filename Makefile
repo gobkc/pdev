@@ -1,5 +1,6 @@
 all:
-	. /opt/venv/bin/activate && pyinstaller --onefile md.py
+	#. /opt/venv/bin/activate && pyinstaller --onefile table.py
+	# . /opt/venv/bin/activate && pyinstaller --onefile md.py
 	# . /opt/venv/bin/activate && pyinstaller --onefile gen-committee.py
 	# . /opt/venv/bin/activate && pyinstaller --onefile match_csv.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile gen-gorm.py
@@ -8,7 +9,7 @@ all:
 #	. /opt/venv/bin/activate && pyinstaller --onefile tostruct.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile kdev.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile convert-time.py
-#	. /opt/venv/bin/activate && pyinstaller --onefile convert-excel.py
+	. /opt/venv/bin/activate && pyinstaller --onefile convert-excel.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile json_counter.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile csv_not_existed.py
 #	. /opt/venv/bin/activate && pyinstaller --onefile json_total.py
