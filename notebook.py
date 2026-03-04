@@ -208,7 +208,6 @@ class NoteApp(Gtk.Application):
         dialog.connect("response", on_response)
 
     def on_add_category_clicked(self, button):
-        # 弹窗输入分类名
         dialog = Gtk.Dialog(title="New Category", transient_for=self.window, modal=True)
         dialog.add_buttons(
             "Cancel", Gtk.ResponseType.CANCEL, "Create", Gtk.ResponseType.OK
@@ -251,23 +250,51 @@ class NoteApp(Gtk.Application):
         self.window = Gtk.ApplicationWindow(application=self)
         self.window.set_default_size(1200, 800)
         self.window.maximize()
-        self.window.set_title("Notebook App")
+        self.window.set_title("Git Notebook")
         Gtk.Settings.get_default().set_property(
             "gtk-application-prefer-dark-theme", True
         )
 
         # Toolbar
-        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         toolbar.set_hexpand(True)
-        toolbar.set_vexpand(False)
+        toolbar.get_style_context().add_class("toolbar")
 
-        self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_valign(Gtk.Align.FILL)
-        self.search_entry.set_width_chars(50)  # 固定宽度大约200px
-        self.search_entry.connect("activate", self.on_search_icon_activated)
+        # Entry
+        self.search_entry = Gtk.Entry()
+        self.search_entry.set_placeholder_text("Search...")
+        self.search_entry.set_width_chars(20)
         toolbar.append(self.search_entry)
 
-        # 设置按钮固定右侧
+        # 搜索按钮
+        self.search_button = Gtk.Button()
+        toolbar.append(self.search_button)
+        # search button logo
+        icon = Gtk.Image.new_from_icon_name("edit-find-symbolic")
+        self.search_button.set_child(icon)
+        self.search_button.connect("clicked", self.on_search_icon_activated)
+
+        separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        separator.get_style_context().add_class("toolbar-separator")
+        toolbar.append(separator)
+
+        sync_button = Gtk.Button()
+        sync_button.get_style_context().add_class("sync-button")
+        button_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        icon = Gtk.Image.new_from_icon_name("view-refresh-symbolic")
+        button_content.append(icon)
+        label = Gtk.Label(label="Sync Notebook")
+        label.get_style_context().add_class("sync-label")
+        button_content.append(label)
+        sync_button.set_child(button_content)
+        # sync_button.connect("clicked", self.on_sync_clicked)
+        toolbar.append(sync_button)
+
+        separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        separator.get_style_context().add_class("toolbar-separator")
+        toolbar.append(separator)
+
+        # settings button
         settings_button = Gtk.Button(label="⚙")
         settings_button.set_valign(Gtk.Align.CENTER)
         settings_button.connect("clicked", self.on_settings_clicked)
@@ -281,21 +308,16 @@ class NoteApp(Gtk.Application):
         self.category_store = Gtk.ListStore(str)
         self.category_tree = Gtk.TreeView(model=self.category_store)
         self.category_tree.get_selection().connect("changed", self.on_category_selected)
+        renderer = Gtk.CellRendererText()
+        renderer.set_property("height", 30)  # 设置行高
+        renderer.set_padding(5, 5)  # 上下 padding
 
         # category_column
-        cat_column = Gtk.TreeViewColumn("Category", Gtk.CellRendererText(), text=0)
+        cat_column = Gtk.TreeViewColumn("Category", renderer, text=0)
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        label = Gtk.Label(label="Category")
-        header_box.append(label)
 
-        cate_add_btn = Gtk.Button(label="+")
-        cate_add_btn.set_valign(Gtk.Align.CENTER)
-        cate_add_btn.connect("clicked", self.on_settings_clicked)
-        cate_add_btn.get_style_context().add_class("cate-button")
-        cate_add_btn_spacer = Gtk.Box()
-        cate_add_btn_spacer.set_hexpand(True)
-        header_box.append(cate_add_btn_spacer)
-        header_box.append(cate_add_btn)
+        label = Gtk.Label(label="Category +")
+        header_box.append(label)
         cat_column.set_widget(header_box)
         cat_column.connect("clicked", lambda col: self.on_add_category_clicked(None))
         self.category_tree.append_column(cat_column)
@@ -309,18 +331,10 @@ class NoteApp(Gtk.Application):
         self.note_tree = Gtk.TreeView(model=self.note_store)
         self.note_tree.get_selection().connect("changed", self.on_note_selected)
 
-        note_column = Gtk.TreeViewColumn("Note", Gtk.CellRendererText(), text=0)
+        note_column = Gtk.TreeViewColumn("Note", renderer, text=0)
         note_header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        note_label = Gtk.Label(label="Note")
+        note_label = Gtk.Label(label="Note +")
         note_header_box.append(note_label)
-        note_add_btn = Gtk.Button(label="+")
-        note_add_btn.set_valign(Gtk.Align.CENTER)
-        note_add_btn.connect("clicked", self.on_settings_clicked)
-        note_add_btn.get_style_context().add_class("flat-button")
-        note_add_btn_spacer = Gtk.Box()
-        note_add_btn_spacer.set_hexpand(True)
-        note_header_box.append(note_add_btn_spacer)
-        note_header_box.append(note_add_btn)
         note_column.set_widget(note_header_box)
         self.note_tree.append_column(note_column)
 
@@ -335,33 +349,175 @@ class NoteApp(Gtk.Application):
         note_scrolled_view = Gtk.ScrolledWindow()
         note_scrolled_view.set_child(note_textview)
         note_scrolled_view.set_vexpand(True)
-        note_scrolled_view.set_margin_top(45)
-        note_scrolled_view.set_margin_bottom(45)
-        note_scrolled_view.set_margin_start(45)
-        note_scrolled_view.set_margin_end(45)
+        note_textview.set_left_margin(35)
+        note_textview.set_right_margin(35)
+        note_textview.set_top_margin(35)
+        note_textview.set_bottom_margin(35)
         note_scrolled_view.get_style_context().add_class("note-area")
         note_textview.set_name("note-textview")
 
         # Horizontal Paned 左中右
+        edit_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        edit_box.set_hexpand(True)
+        edit_box.set_vexpand(True)
+        # ---- 标题编辑 ----
+        title_buffer = Gtk.TextBuffer()
+        title_view = Gtk.TextView(buffer=title_buffer)
+        title_view.set_wrap_mode(Gtk.WrapMode.NONE)
+        title_view.set_vexpand(False)
+        title_view.set_size_request(-1, 40)
+        edit_box.append(title_view)
+        # ---- 时间显示（只读）----
+        from datetime import datetime
+
+        time_buffer = Gtk.TextBuffer()
+        time_buffer.set_text(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        time_view = Gtk.TextView(buffer=time_buffer)
+        time_view.set_editable(False)
+        time_view.set_cursor_visible(False)
+        time_view.set_wrap_mode(Gtk.WrapMode.NONE)
+        time_view.set_vexpand(False)
+        time_view.set_size_request(-1, 30)
+        edit_box.append(time_view)
+        markdown_buffer = Gtk.TextBuffer()
+        markdown_view = Gtk.TextView(buffer=markdown_buffer)
+        markdown_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        markdown_view.set_hexpand(True)
+        markdown_view.set_vexpand(True)
+        markdown_scrolled = Gtk.ScrolledWindow()
+        markdown_scrolled.set_child(markdown_view)
+        markdown_scrolled.set_hexpand(True)
+        markdown_scrolled.set_vexpand(True)
+        edit_box.append(markdown_scrolled)
+        edit_area = edit_box
+
+        # 右侧：edit_area + note_scrolled_view
+        right_pane = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
+        right_pane.set_start_child(edit_area)
+        right_pane.set_end_child(note_scrolled_view)
+        right_pane.set_position(500)
+
+        # 中间：note titles + 右侧整体
         middle_pane = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
         middle_pane.set_start_child(note_scrolled)
-        middle_pane.set_end_child(note_scrolled_view)
+        middle_pane.set_end_child(right_pane)
         middle_pane.set_position(300)
-        middle_pane.get_style_context().add_class("middle-pane")
+
+        # 最左：category + 其他
         main_pane = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
         main_pane.set_start_child(category_scrolled)
         main_pane.set_end_child(middle_pane)
         main_pane.set_position(250)
 
-        # CSS 扁平化
+        default_prompt = "Welcome to Git Notebook Console\nType 'help' for available shortcut key\n1.Ctrl-N\tCreate a new note \n2.Ctrl-+ \tCreate a new category \n3.Ctrl-S \tSave current note \n>"
+        self.console_buffer = Gtk.TextBuffer()
+        self.console_buffer.set_text(default_prompt)
+        self.console_view = Gtk.TextView(buffer=self.console_buffer)
+        self.console_view.set_editable(False)
+        self.console_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.console_view.get_style_context().add_class("console-area")
+        console_scrolled = Gtk.ScrolledWindow()
+        console_scrolled.set_child(self.console_view)
+        console_scrolled.set_vexpand(False)
+        console_scrolled.set_size_request(-1, 150)
+
+        def console_log(text):
+            end_iter = self.console_buffer.get_end_iter()
+            self.console_buffer.insert(end_iter, text + "\n")
+
+        self.console_log = console_log
+
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(b"""
+        .toolbar {
+            background-color: #1e1e1e;
+            border-bottom:1px solid black;
+        }
+        entry {
+            border: none;
+            border-radius: 0;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            padding: 4px;
+            padding-left:10px;
+            padding-right:10px;
+            outline: none;
+        }
+        entry:focus {
+            background-color: #1e1e1e;
+            -GtkEntry-focus-line-width: 1px;
+            -GtkEntry-focus-border: #000000;
+            box-shadow: none;
+        }
+        entry:backdrop {
+            background-color: #1e1e1e;
+        }
+        button {
+            border: none;
+            background-image: none;
+            background-color: #1e1e1e;
+            border-radius: 0;
+        }
+        button:hover {
+            background-color: #1e1e1e;
+        }
+        button:active {
+            background-color: #1e1e1e;
+        }
+        image {
+            color: #c1c1c1;
+        }
+        button:hover image {
+            color: #ffffff;
+        }
+
+        treeview.view {
+            row-height: 30px;
+        }
+        treeview.view header button {
+            min-height: 30px;
+            padding-top: 5px;
+            padding-bottom: 5px;
+        }
+
+        .toolbar-separator {
+            background-color: black;
+            padding: 0;
+            margin: 0;
+        }
+        .sync-button {
+            background-color: #1e1e1e;
+            border: none;
+            border-radius: 0;
+            padding: 4px 24px;
+            margin: 0;
+        }
+        .sync-button:hover {
+            background-color: #1e1e1e;
+        }
+        .sync-button:active {
+            background-color: #1e1e1e;
+        }
+
+        .sync-label {
+            font-size: 14px;
+            font-weight: bold;
+            color: #c1c1c1;
+        }
+        .sync-button:hover .sync-label{
+            color: #ffffff;
+        }
+
         .flat-button {
-            border-radius:0;
-            border-width:0;
-            box-shadow:none;
-            background-color:#3c3c3c;
-            color:#ffffff;
+            border: none;
+            background-image: none;
+            background-color: #1e1e1e;
+            border-radius: 0;
+            color: #c1c1c1;
+        }
+        .flat-button:hover {
+            background-color: #1e1e1e;
+            color: #ffffff;
         }
         .cate-button {
             border-radius:0;
@@ -378,7 +534,7 @@ class NoteApp(Gtk.Application):
             background-color:#2b2b2b;
             color:#ffffff;
         }
-        .middle-pane {
+        .right_pane {
             background-color:#1e1e1e;
         }
 
@@ -389,7 +545,47 @@ class NoteApp(Gtk.Application):
             background-color: #1e1e1e;
         }
         #note-textview {
-            background-color: transparent;
+            background-color: #1e1e1e;
+        }
+
+        .console-area {
+            padding: 20px;
+            color: #1bd66c;
+            background-color: #1e1e1e;
+            border-top:1px solid black;
+            font-size: 13px;
+            caret-color: #1bd66c;
+        }
+        .console-area:selected {
+            background-color: #4a90e2;
+            color: #ffffff;
+        }
+        .console-area textview {
+            background-color: #1e1e1e;
+            color: #1bd66c;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .console-area textview text {
+            background-color: #1e1e1e;
+            color: #1bd66c;
+        }
+        .console-area textview text:backdrop,
+        .console-area textview text:insensitive,
+        .console-area textview text:active,
+        .console-area textview text:hover {
+            color: #1bd66c;
+        }
+        .console-area textview text:selected {
+            background-color: #4a90e2;
+            color: #ffffff;
+        }
+        .console-area textview text:selected:focus {
+            background-color: #4a90e2;
+            color: #ffffff;
+        }
+        .console-area textview {
+            caret-color: #1bd66c;
         }
         """)
         display = Gdk.Display.get_default()
@@ -401,6 +597,7 @@ class NoteApp(Gtk.Application):
         vbox.set_vexpand(True)
         vbox.append(toolbar)
         vbox.append(main_pane)
+        vbox.append(console_scrolled)
 
         self.window.set_child(vbox)
         self.load_notes()
