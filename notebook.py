@@ -134,7 +134,7 @@ class NoteApp(Gtk.Application):
             f"Title: {os.path.basename(note_file)}\nCreated: {created}\n\n{content}"
         )
         self.note_textbuffer.set_text(display_text)
-        self.edit_box_title_text_buffer.set_text(os.path.basename(note_file))
+        self.edit_box_title_text.set_text(os.path.basename(note_file))
         self.edit_box_time_text_buffer.set_text(created)
         self.edit_box_markdown_text.set_text(content)
 
@@ -312,7 +312,7 @@ class NoteApp(Gtk.Application):
         self.category_tree = Gtk.TreeView(model=self.category_store)
         self.category_tree.get_selection().connect("changed", self.on_category_selected)
         renderer = Gtk.CellRendererText()
-        renderer.set_property("height", 30)  # 设置行高
+        renderer.set_property("height", 30)
         renderer.set_padding(5, 5)  # 上下 padding
 
         # category_column
@@ -323,15 +323,18 @@ class NoteApp(Gtk.Application):
         header_box.append(label)
         cat_column.set_widget(header_box)
         cat_column.connect("clicked", lambda col: self.on_add_category_clicked(None))
+        self.category_tree.set_name("category-tree")
         self.category_tree.append_column(cat_column)
 
         category_scrolled = Gtk.ScrolledWindow()
         category_scrolled.set_child(self.category_tree)
         category_scrolled.set_vexpand(True)
+        category_scrolled.get_style_context().add_class("category-scrolled")
 
         # Middle: Note
         self.note_store = Gtk.ListStore(str, str)
         self.note_tree = Gtk.TreeView(model=self.note_store)
+        self.note_tree.set_name("note-tree")
         self.note_tree.get_selection().connect("changed", self.on_note_selected)
 
         note_column = Gtk.TreeViewColumn("Note", renderer, text=0)
@@ -344,6 +347,7 @@ class NoteApp(Gtk.Application):
         note_scrolled = Gtk.ScrolledWindow()
         note_scrolled.set_child(self.note_tree)
         note_scrolled.set_vexpand(True)
+        note_scrolled.get_style_context().add_class("note-scrolled")
 
         # Right: content
         self.note_textbuffer = Gtk.TextBuffer()
@@ -365,29 +369,29 @@ class NoteApp(Gtk.Application):
         edit_box.set_vexpand(True)
         edit_box_titilebar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         edit_box_titilebar.set_hexpand(True)
+        edit_box_titilebar.set_name("titlebar")
 
         # ---- 标题编辑 ----
-        self.edit_box_title_text_buffer = Gtk.TextBuffer()
-        edit_box_title_text = Gtk.TextView(buffer=self.edit_box_title_text_buffer)
-        edit_box_title_text.set_wrap_mode(Gtk.WrapMode.NONE)
-        edit_box_title_text.set_hexpand(True)
-        edit_box_title_text.set_vexpand(False)
-        edit_box_title_text.set_top_margin(35)
-        edit_box_title_text.set_bottom_margin(0)
-        edit_box_title_text.set_left_margin(35)
-        edit_box_title_text.set_right_margin(10)
-        edit_box_title_text.set_size_request(-1, 40)
-        edit_box_titilebar.append(edit_box_title_text)
+        self.edit_box_title_text = Gtk.Entry()
+        self.edit_box_title_text.set_placeholder_text("Title...")
+        self.edit_box_title_text.set_hexpand(True)
+        self.edit_box_title_text.set_vexpand(False)
+        self.edit_box_title_text.set_size_request(-1, 20)
+        self.edit_box_title_text.set_alignment(0.0)  # 左对齐
+        self.edit_box_title_text.set_name("title-text")
+        edit_box_titilebar.append(self.edit_box_title_text)
         self.edit_box_time_text_buffer = Gtk.TextBuffer()
         edit_box_time_text = Gtk.TextView(buffer=self.edit_box_time_text_buffer)
         edit_box_time_text.set_editable(False)
         edit_box_time_text.set_cursor_visible(False)
         edit_box_time_text.set_wrap_mode(Gtk.WrapMode.NONE)
-        edit_box_time_text.set_top_margin(35)
+        edit_box_time_text.set_top_margin(14)
         edit_box_time_text.set_bottom_margin(0)
-        edit_box_time_text.set_left_margin(10)
+        edit_box_time_text.set_left_margin(30)
         edit_box_time_text.set_right_margin(35)
-        edit_box_time_text.set_size_request(160, 40)
+        edit_box_time_text.set_size_request(179, 20)
+        edit_box_time_text.set_name("time-text")
+        edit_box_time_text.set_halign(Gtk.Align.END)
         edit_box_titilebar.append(edit_box_time_text)
         edit_box.append(edit_box_titilebar)
 
@@ -400,6 +404,7 @@ class NoteApp(Gtk.Application):
         edit_box_markdown_text.set_right_margin(35)
         edit_box_markdown_text.set_top_margin(35)
         edit_box_markdown_text.set_bottom_margin(35)
+        edit_box_markdown_text.set_name("markdown-text")
 
         markdown_scrolled = Gtk.ScrolledWindow()
         markdown_scrolled.set_child(edit_box_markdown_text)
@@ -409,10 +414,11 @@ class NoteApp(Gtk.Application):
         edit_area = edit_box
 
         # 右侧：edit_area + note_scrolled_view
+        note_scrolled_view.set_size_request(300, -1)
         right_pane = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
         right_pane.set_start_child(edit_area)
         right_pane.set_end_child(note_scrolled_view)
-        right_pane.set_position(500)
+        right_pane.set_position(-1)
 
         # 中间：note titles + 右侧整体
         middle_pane = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
@@ -447,13 +453,13 @@ class NoteApp(Gtk.Application):
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(b"""
         .toolbar {
-            background-color: #1e1e1e;
+            background-color: #26282b;
             border-bottom:1px solid black;
         }
         entry {
             border: none;
             border-radius: 0;
-            background-color: #1e1e1e;
+            background-color: #26282b;
             color: #ffffff;
             padding: 4px;
             padding-left:10px;
@@ -461,25 +467,25 @@ class NoteApp(Gtk.Application):
             outline: none;
         }
         entry:focus {
-            background-color: #1e1e1e;
+            background-color: #26282b;
             -GtkEntry-focus-line-width: 1px;
             -GtkEntry-focus-border: #000000;
             box-shadow: none;
         }
         entry:backdrop {
-            background-color: #1e1e1e;
+            background-color: #26282b;
         }
         button {
             border: none;
             background-image: none;
-            background-color: #1e1e1e;
+            background-color: #26282b;
             border-radius: 0;
         }
         button:hover {
-            background-color: #1e1e1e;
+            background-color: #26282b;
         }
         button:active {
-            background-color: #1e1e1e;
+            background-color: #26282b;
         }
         image {
             color: #c1c1c1;
@@ -490,6 +496,9 @@ class NoteApp(Gtk.Application):
 
         treeview.view {
             row-height: 30px;
+        }
+        .category-scrolled, .category-scrolled > viewport {
+            background-color: #26282b;
         }
         treeview.view header button {
             min-height: 30px;
@@ -503,17 +512,17 @@ class NoteApp(Gtk.Application):
             margin: 0;
         }
         .sync-button {
-            background-color: #1e1e1e;
+            background-color: #26282b;
             border: none;
             border-radius: 0;
             padding: 4px 24px;
             margin: 0;
         }
         .sync-button:hover {
-            background-color: #1e1e1e;
+            background-color: #26282b;
         }
         .sync-button:active {
-            background-color: #1e1e1e;
+            background-color: #26282b;
         }
 
         .sync-label {
@@ -528,19 +537,19 @@ class NoteApp(Gtk.Application):
         .flat-button {
             border: none;
             background-image: none;
-            background-color: #1e1e1e;
+            background-color: #26282b;
             border-radius: 0;
             color: #c1c1c1;
         }
         .flat-button:hover {
-            background-color: #1e1e1e;
+            background-color: #26282b;
             color: #ffffff;
         }
         .cate-button {
             border-radius:0;
             border-width:0;
             box-shadow:none;
-            background-color:#2d2d2d;
+            background-color:#26282b;
             color:#ffffff;
         }
         GtkSearchEntry {
@@ -552,23 +561,42 @@ class NoteApp(Gtk.Application):
             color:#ffffff;
         }
         .right_pane {
-            background-color:#1e1e1e;
+            background-color:#191a1c;
         }
 
         .note-area {
-            background-color:#1e1e1e;
+            background-color:#191a1c;
+            border-left: 1px solid black;
         }
         .note-area > viewport {
-            background-color: #1e1e1e;
+            background-color: #191a1c;
         }
         #note-textview {
-            background-color: #1e1e1e;
+            background-color: #191a1c;
         }
-
+        #markdown-text,#titlebar {
+            background-color: #191a1c;
+        }
+        #title-text,#time-text {
+            background-color: #26282b;
+            color: #bcbec4;
+            font-size:14px;
+            font-weight:bold;
+        }
+        #title-text{
+            padding-left:35px;
+        }
+        #time-text{
+            border-left:0px;
+            color: #8e8e99;
+            font-size: 12px;
+            font-style: italic;
+            text-align:right;
+        }
         .console-area {
             padding: 20px;
             color: #1bd66c;
-            background-color: #1e1e1e;
+            background-color: #191a1c;
             border-top:1px solid black;
             font-size: 13px;
             caret-color: #1bd66c;
@@ -578,13 +606,13 @@ class NoteApp(Gtk.Application):
             color: #ffffff;
         }
         .console-area textview {
-            background-color: #1e1e1e;
+            background-color: #26282b;
             color: #1bd66c;
             font-family: monospace;
             font-size: 13px;
         }
         .console-area textview text {
-            background-color: #1e1e1e;
+            background-color: #26282b;
             color: #1bd66c;
         }
         .console-area textview text:backdrop,

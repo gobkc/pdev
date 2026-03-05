@@ -18,3 +18,6 @@ all:
 install:
 	. /opt/venv/bin/activate && pip install psycopg2-binary pyinstaller markdown tkhtmlview pygments weasyprint html2text tkinterweb
 	sudo apt install -y python3-tk python3-psycopg2 python3-markdown python3-reportlab
+
+debug:
+	GTK_DEBUG=interactive python3 notebook.py
