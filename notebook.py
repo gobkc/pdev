@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import re
 import subprocess
 import threading
 from datetime import datetime
@@ -9,7 +10,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, GLib, Gtk
+from gi.repository import Gdk, Gio, GLib, GObject, Gtk, Pango
 
 HOME_DIR = os.path.expanduser("~")
 APP_DIR = os.path.join(HOME_DIR, ".local/.books")
@@ -17,8 +18,27 @@ CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 GIT_DIR = os.path.join(APP_DIR, "git")
 
 
+class CategoryItem(GObject.Object):
+    name = GObject.Property(type=str)
+
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+
+
+class NoteItem(GObject.Object):
+    title = GObject.Property(type=str)
+    path = GObject.Property(type=str)
+
+    def __init__(self, title, path):
+        super().__init__()
+        self.title = title
+        self.path = path
+
+
 class NoteApp(Gtk.Application):
     def __init__(self):
+        self._markdown_render_timeout_id = None
         super().__init__(application_id="com.notes.gitapp")
         self.connect("activate", self.on_activate)
         self.config = {"repo": "", "user": "", "token": ""}
@@ -82,7 +102,7 @@ class NoteApp(Gtk.Application):
             return
         for root, dirs, files in os.walk(GIT_DIR):
             if ".git" in dirs:
-                dirs.remove(".git")  # 隐藏.git
+                dirs.remove(".git")
             rel_root = os.path.relpath(root, GIT_DIR)
             if rel_root == ".":
                 continue
@@ -102,25 +122,29 @@ class NoteApp(Gtk.Application):
                 GLib.idle_add(lambda: self.update_note_content(self.current_note))
 
     def update_category_list(self, search=None):
-        self.category_store.clear()
+        self.category_liststore.remove_all()
         for cat in self.categories:
             if search and search.lower() not in cat.lower():
                 continue
-            self.category_store.append([cat])
-        first_iter = self.category_store.get_iter_first()
-        if first_iter:
-            self.category_tree.get_selection().select_iter(first_iter)
+            self.category_liststore.append(CategoryItem(cat))
+        if (
+            self.category_selection.get_selected_item() is None
+            and len(self.category_liststore) > 0
+        ):
+            self.category_selection.set_selected_item(self.category_liststore[0])
 
     def update_note_list(self, category, search=None):
-        self.note_store.clear()
+        self.note_liststore.remove_all()
         for note_file in self.notes.get(category, []):
             title = os.path.basename(note_file)
             if search and search.lower() not in title.lower():
                 continue
-            self.note_store.append([title, note_file])
-        first_iter = self.note_store.get_iter_first()
-        if first_iter:
-            self.note_tree.get_selection().select_iter(first_iter)
+            self.note_liststore.append(NoteItem(title, note_file))
+        if (
+            self.note_selection.get_selected_item() is None
+            and len(self.note_liststore) > 0
+        ):
+            self.note_selection.set_selected_item(self.note_liststore[0])
 
     def update_note_content(self, note_file):
         if not os.path.exists(note_file):
@@ -128,40 +152,22 @@ class NoteApp(Gtk.Application):
             return
         with open(note_file, "r") as f:
             content = f.read()
+        render_markdown(self.note_textbuffer, content)
         stats = os.stat(note_file)
         created = datetime.fromtimestamp(stats.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
-        display_text = (
-            f"Title: {os.path.basename(note_file)}\nCreated: {created}\n\n{content}"
-        )
-        self.note_textbuffer.set_text(display_text)
+        # display_text = (
+        #     f"Title: {os.path.basename(note_file)}\nCreated: {created}\n\n{content}"
+        # )
+        # self.note_textbuffer.set_text(display_text)
         self.edit_box_title_text.set_text(os.path.basename(note_file))
         self.edit_box_time_text_buffer.set_text(created)
         self.edit_box_markdown_text.set_text(content)
-
-    def on_category_selected(self, selection):
-        model, treeiter = selection.get_selected()
-        if treeiter:
-            category = model[treeiter][0]
-            self.current_category = category
-            self.update_note_list(category, self.search_entry.get_text())
-
-    def on_note_selected(self, selection):
-        model, treeiter = selection.get_selected()
-        if treeiter:
-            note_file = model[treeiter][1]
-            self.current_note = note_file
-            self.update_note_content(note_file)
 
     def on_search_icon_activated(self, search_entry):
         search_text = search_entry.get_text()
         self.update_category_list(search_text)
         if self.current_category:
             self.update_note_list(self.current_category, search_text)
-            first_iter = self.note_store.get_iter_first()
-            if first_iter:
-                note_file = self.note_store[first_iter][1]
-                self.current_note = note_file
-                self.update_note_content(note_file)
 
     def on_settings_clicked(self, button):
         dialog = Gtk.Dialog(title="Settings", transient_for=self.window, modal=True)
@@ -169,7 +175,6 @@ class NoteApp(Gtk.Application):
             "Cancel", Gtk.ResponseType.CANCEL, "Save", Gtk.ResponseType.OK
         )
         box = dialog.get_content_area()
-
         grid = Gtk.Grid(
             column_spacing=10,
             row_spacing=10,
@@ -179,23 +184,17 @@ class NoteApp(Gtk.Application):
             margin_end=10,
         )
         box.append(grid)
-
-        # Labels
         grid.attach(Gtk.Label(label="Git Repo URL", halign=Gtk.Align.END), 0, 0, 1, 1)
         grid.attach(Gtk.Label(label="User / OAuth2", halign=Gtk.Align.END), 0, 1, 1, 1)
         grid.attach(
             Gtk.Label(label="Token / Personal Token", halign=Gtk.Align.END), 0, 2, 1, 1
         )
-
-        # Entries
         repo_entry = Gtk.Entry(text=self.config.get("repo", ""))
         user_entry = Gtk.Entry(text=self.config.get("user", ""))
         token_entry = Gtk.Entry(text=self.config.get("token", ""))
-
         grid.attach(repo_entry, 1, 0, 1, 1)
         grid.attach(user_entry, 1, 1, 1, 1)
         grid.attach(token_entry, 1, 2, 1, 1)
-
         dialog.show()
 
         def on_response(d, response_id):
@@ -232,24 +231,9 @@ class NoteApp(Gtk.Application):
 
         dialog.connect("response", on_response)
 
-    def on_add_note_clicked(self, button):
-        pass  # 后续实现
-
-    def show_message(self, text):
-        dialog = Gtk.MessageDialog(
-            transient_for=self.window,
-            modal=True,
-            message_type=Gtk.MessageType.WARNING,
-            buttons=Gtk.ButtonsType.OK,
-            text=text,
-        )
-        dialog.show()
-        dialog.connect("response", lambda d, r: d.destroy())
-
     def on_activate(self, app):
         self.load_config()
         self.clone_or_pull_repo()
-
         self.window = Gtk.ApplicationWindow(application=self)
         self.window.set_default_size(1200, 800)
         self.window.maximize()
@@ -258,29 +242,22 @@ class NoteApp(Gtk.Application):
             "gtk-application-prefer-dark-theme", True
         )
 
-        # Toolbar
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         toolbar.set_hexpand(True)
         toolbar.get_style_context().add_class("toolbar")
 
-        # Entry
         self.search_entry = Gtk.Entry()
         self.search_entry.set_placeholder_text("Search...")
         self.search_entry.set_width_chars(20)
         toolbar.append(self.search_entry)
-
-        # 搜索按钮
         self.search_button = Gtk.Button()
         toolbar.append(self.search_button)
-        # search button logo
         icon = Gtk.Image.new_from_icon_name("edit-find-symbolic")
         self.search_button.set_child(icon)
         self.search_button.connect("clicked", self.on_search_icon_activated)
-
         separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
         separator.get_style_context().add_class("toolbar-separator")
         toolbar.append(separator)
-
         sync_button = Gtk.Button()
         sync_button.get_style_context().add_class("sync-button")
         button_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -290,14 +267,10 @@ class NoteApp(Gtk.Application):
         label.get_style_context().add_class("sync-label")
         button_content.append(label)
         sync_button.set_child(button_content)
-        # sync_button.connect("clicked", self.on_sync_clicked)
         toolbar.append(sync_button)
-
         separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
         separator.get_style_context().add_class("toolbar-separator")
         toolbar.append(separator)
-
-        # settings button
         settings_button = Gtk.Button(label="⚙")
         settings_button.set_valign(Gtk.Align.CENTER)
         settings_button.connect("clicked", self.on_settings_clicked)
@@ -307,49 +280,71 @@ class NoteApp(Gtk.Application):
         toolbar.append(spacer)
         toolbar.append(settings_button)
 
-        # Left: Category
-        self.category_store = Gtk.ListStore(str)
-        self.category_tree = Gtk.TreeView(model=self.category_store)
-        self.category_tree.get_selection().connect("changed", self.on_category_selected)
-        renderer = Gtk.CellRendererText()
-        renderer.set_property("height", 30)
-        renderer.set_padding(5, 5)  # 上下 padding
+        self.category_liststore = Gio.ListStore.new(CategoryItem)
+        self.category_selection = Gtk.SingleSelection.new(self.category_liststore)
+        self.category_selection.connect(
+            "notify::selected-item", self.on_category_selected_changed
+        )
+        self.category_factory = Gtk.SignalListItemFactory()
+        self.category_factory.connect("setup", self.setup_category_factory)
+        self.category_factory.connect("bind", self.bind_category_factory)
+        self.category_listview = Gtk.ListView.new(
+            self.category_selection, self.category_factory
+        )
+        self.category_listview.set_name("category-list")
+        self.category_listview.set_vexpand(True)
 
-        # category_column
-        cat_column = Gtk.TreeViewColumn("Category", renderer, text=0)
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        category_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        category_label = Gtk.Label(label="Categories")
+        category_label.set_halign(Gtk.Align.START)
+        category_spacer = Gtk.Box()
+        category_spacer.set_hexpand(True)
+        category_add_btn = Gtk.Button()
+        category_add_icon = Gtk.Image.new_from_icon_name("list-add-symbolic")
+        category_add_btn.set_child(category_add_icon)
+        category_add_btn.connect("clicked", self.on_add_category_clicked)
+        category_header.append(category_label)
+        category_header.append(category_spacer)
+        category_header.append(category_add_btn)
+        category_header.set_name("category-header")
 
-        label = Gtk.Label(label="Category +")
-        header_box.append(label)
-        cat_column.set_widget(header_box)
-        cat_column.connect("clicked", lambda col: self.on_add_category_clicked(None))
-        self.category_tree.set_name("category-tree")
-        self.category_tree.append_column(cat_column)
+        category_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        category_box.append(category_header)
+        category_box.append(self.category_listview)
 
         category_scrolled = Gtk.ScrolledWindow()
-        category_scrolled.set_child(self.category_tree)
-        category_scrolled.set_vexpand(True)
-        category_scrolled.get_style_context().add_class("category-scrolled")
+        category_scrolled.set_child(category_box)
 
-        # Middle: Note
-        self.note_store = Gtk.ListStore(str, str)
-        self.note_tree = Gtk.TreeView(model=self.note_store)
-        self.note_tree.set_name("note-tree")
-        self.note_tree.get_selection().connect("changed", self.on_note_selected)
-
-        note_column = Gtk.TreeViewColumn("Note", renderer, text=0)
-        note_header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        note_label = Gtk.Label(label="Note +")
-        note_header_box.append(note_label)
-        note_column.set_widget(note_header_box)
-        self.note_tree.append_column(note_column)
-
+        self.note_liststore = Gio.ListStore.new(NoteItem)
+        self.note_selection = Gtk.SingleSelection.new(self.note_liststore)
+        self.note_selection.connect(
+            "notify::selected-item", self.on_note_selected_changed
+        )
+        self.note_factory = Gtk.SignalListItemFactory()
+        self.note_factory.connect("setup", self.setup_note_factory)
+        self.note_factory.connect("bind", self.bind_note_factory)
+        self.note_listview = Gtk.ListView.new(self.note_selection, self.note_factory)
+        self.note_listview.set_name("note-list")
+        self.note_listview.set_vexpand(True)
+        note_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        note_label = Gtk.Label(label="Notes")
+        note_label.set_halign(Gtk.Align.START)
+        note_spacer = Gtk.Box()
+        note_spacer.set_hexpand(True)
+        note_add_btn = Gtk.Button()
+        note_add_icon = Gtk.Image.new_from_icon_name("list-add-symbolic")  # 内置 icon
+        note_add_btn.set_child(note_add_icon)
+        # note_add_btn.connect("clicked", self.on_add_note_clicked)
+        note_header.append(note_label)
+        note_header.append(note_spacer)
+        note_header.append(note_add_btn)
+        note_header.set_name("note-header")
+        note_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        note_box.append(note_header)
+        note_box.append(self.note_listview)
         note_scrolled = Gtk.ScrolledWindow()
-        note_scrolled.set_child(self.note_tree)
-        note_scrolled.set_vexpand(True)
-        note_scrolled.get_style_context().add_class("note-scrolled")
+        note_scrolled.set_child(note_box)
 
-        # Right: content
         self.note_textbuffer = Gtk.TextBuffer()
         note_textview = Gtk.TextView(buffer=self.note_textbuffer)
         note_textview.set_editable(False)
@@ -363,21 +358,18 @@ class NoteApp(Gtk.Application):
         note_scrolled_view.get_style_context().add_class("note-area")
         note_textview.set_name("note-textview")
 
-        # Horizontal Paned 左中右
         edit_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         edit_box.set_hexpand(True)
         edit_box.set_vexpand(True)
         edit_box_titilebar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         edit_box_titilebar.set_hexpand(True)
         edit_box_titilebar.set_name("titlebar")
-
-        # ---- 标题编辑 ----
         self.edit_box_title_text = Gtk.Entry()
         self.edit_box_title_text.set_placeholder_text("Title...")
         self.edit_box_title_text.set_hexpand(True)
         self.edit_box_title_text.set_vexpand(False)
         self.edit_box_title_text.set_size_request(-1, 20)
-        self.edit_box_title_text.set_alignment(0.0)  # 左对齐
+        self.edit_box_title_text.set_alignment(0.0)
         self.edit_box_title_text.set_name("title-text")
         edit_box_titilebar.append(self.edit_box_title_text)
         self.edit_box_time_text_buffer = Gtk.TextBuffer()
@@ -388,13 +380,12 @@ class NoteApp(Gtk.Application):
         edit_box_time_text.set_top_margin(14)
         edit_box_time_text.set_bottom_margin(0)
         edit_box_time_text.set_left_margin(30)
-        edit_box_time_text.set_right_margin(35)
+        edit_box_time_text.set_right_margin(15)
         edit_box_time_text.set_size_request(179, 20)
         edit_box_time_text.set_name("time-text")
         edit_box_time_text.set_halign(Gtk.Align.END)
         edit_box_titilebar.append(edit_box_time_text)
         edit_box.append(edit_box_titilebar)
-
         self.edit_box_markdown_text = Gtk.TextBuffer()
         edit_box_markdown_text = Gtk.TextView(buffer=self.edit_box_markdown_text)
         edit_box_markdown_text.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
@@ -405,28 +396,22 @@ class NoteApp(Gtk.Application):
         edit_box_markdown_text.set_top_margin(35)
         edit_box_markdown_text.set_bottom_margin(35)
         edit_box_markdown_text.set_name("markdown-text")
-
+        self.edit_box_markdown_text.connect("changed", self.on_markdown_changed)
         markdown_scrolled = Gtk.ScrolledWindow()
         markdown_scrolled.set_child(edit_box_markdown_text)
         markdown_scrolled.set_hexpand(True)
         markdown_scrolled.set_vexpand(True)
         edit_box.append(markdown_scrolled)
         edit_area = edit_box
-
-        # 右侧：edit_area + note_scrolled_view
         note_scrolled_view.set_size_request(300, -1)
         right_pane = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
         right_pane.set_start_child(edit_area)
         right_pane.set_end_child(note_scrolled_view)
         right_pane.set_position(-1)
-
-        # 中间：note titles + 右侧整体
         middle_pane = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
         middle_pane.set_start_child(note_scrolled)
         middle_pane.set_end_child(right_pane)
         middle_pane.set_position(300)
-
-        # 最左：category + 其他
         main_pane = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
         main_pane.set_start_child(category_scrolled)
         main_pane.set_end_child(middle_pane)
@@ -494,18 +479,25 @@ class NoteApp(Gtk.Application):
             color: #ffffff;
         }
 
-        treeview.view {
-            row-height: 30px;
-        }
-        .category-scrolled, .category-scrolled > viewport {
+        #category-list {
             background-color: #26282b;
+            color: #bcbec4;
         }
-        treeview.view header button {
-            min-height: 30px;
-            padding-top: 5px;
-            padding-bottom: 5px;
+        #note-list {
+            background-color: #26282b;
+            color: #bcbec4;
         }
-
+        #category-header, #note-header {
+            padding: 5px;
+            padding-left:15px;
+            background-color: #26282b;
+            color: #bcbec4;
+            font-weight: bold;
+        }
+        #category-header > button, #note-header > button {
+            min-width: 24px;
+            min-height: 24px;
+        }
         .toolbar-separator {
             background-color: black;
             padding: 0;
@@ -584,7 +576,7 @@ class NoteApp(Gtk.Application):
             font-weight:bold;
         }
         #title-text{
-            padding-left:35px;
+            padding-left:15px;
         }
         #time-text{
             border-left:0px;
@@ -643,10 +635,237 @@ class NoteApp(Gtk.Application):
         vbox.append(toolbar)
         vbox.append(main_pane)
         vbox.append(console_scrolled)
-
         self.window.set_child(vbox)
         self.load_notes()
         self.window.show()
+
+    def setup_category_factory(self, factory, list_item):
+        label = Gtk.Label()
+        label.set_margin_top(5)
+        label.set_margin_bottom(5)
+        label.set_margin_start(15)
+        label.set_xalign(0.0)
+        list_item.set_child(label)
+
+    def bind_category_factory(self, factory, list_item):
+        item = list_item.get_item()
+        label = list_item.get_child()
+        label.set_text(item.name)
+
+    def setup_note_factory(self, factory, list_item):
+        label = Gtk.Label()
+        label.set_margin_top(5)
+        label.set_margin_bottom(5)
+        label.set_margin_start(15)
+        label.set_xalign(0.0)
+        list_item.set_child(label)
+
+    def bind_note_factory(self, factory, list_item):
+        item = list_item.get_item()
+        label = list_item.get_child()
+        label.set_text(item.title)
+
+    def on_category_selected_changed(self, selection, param):
+        item = selection.get_selected_item()
+        if item:
+            self.current_category = item.name
+            self.update_note_list(item.name, self.search_entry.get_text())
+
+    def on_note_selected_changed(self, selection, param):
+        item = selection.get_selected_item()
+        if item:
+            self.current_note = item.path
+            self.update_note_content(item.path)
+
+    def on_markdown_changed(self, textview):
+        if self._markdown_render_timeout_id is not None:
+            GLib.source_remove(self._markdown_render_timeout_id)
+
+        self._markdown_render_timeout_id = GLib.timeout_add(
+            300, self._render_markdown_preview
+        )
+
+    def _render_markdown_preview(self):
+        content = self.edit_box_markdown_text.get_text(
+            self.edit_box_markdown_text.get_start_iter(),
+            self.edit_box_markdown_text.get_end_iter(),
+            True,
+        )
+        render_markdown(self.note_textbuffer, content)
+
+        self._markdown_render_timeout_id = None
+        return False
+
+
+def render_markdown(buffer, text):
+    buffer.set_text("")
+    tags = {}
+
+    def get_or_create_tag(buffer, name, **props):
+        tag = buffer.get_tag_table().lookup(name)
+        if not tag:
+            tag = buffer.create_tag(name, **props)
+        return tag
+
+    # 标题
+    for i in range(1, 7):
+        tags[f"h{i}"] = get_or_create_tag(
+            buffer, f"h{i}", weight=Pango.Weight.BOLD, size_points=24 - (i - 1) * 2
+        )
+    # 字体样式
+    tags["bold"] = get_or_create_tag(buffer, "bold", weight=Pango.Weight.BOLD)
+    tags["italic"] = get_or_create_tag(buffer, "italic", style=Pango.Style.ITALIC)
+    tags["bolditalic"] = get_or_create_tag(
+        buffer, "bolditalic", weight=Pango.Weight.BOLD, style=Pango.Style.ITALIC
+    )
+    tags["strikethrough"] = get_or_create_tag(
+        buffer, "strikethrough", strikethrough=True
+    )
+    tags["underline"] = get_or_create_tag(
+        buffer, "underline", underline=Pango.Underline.SINGLE
+    )
+    tags["list"] = get_or_create_tag(buffer, "list", left_margin=20)
+    tags["quote"] = get_or_create_tag(
+        buffer, "quote", foreground="#888888", left_margin=20
+    )
+    tags["code"] = get_or_create_tag(
+        buffer, "code", family="Monospace", background="#2b2b2b", foreground="#a0a0a0"
+    )
+    tags["link"] = get_or_create_tag(
+        buffer, "link", foreground="#1E90FF", underline=Pango.Underline.SINGLE
+    )
+    tags["hr"] = get_or_create_tag(buffer, "hr", foreground="#888888")
+
+    lines = text.split("\n")
+    for line in lines:
+        start_iter = buffer.get_end_iter()
+        line = line.rstrip()
+
+        # 分割线
+        if re.match(r"^([-*_]{3,})$", line):
+            buffer.insert_with_tags(
+                start_iter, "────────────────────────\n", tags["hr"]
+            )
+            continue
+
+        # 标题
+        m = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if m:
+            level = len(m.group(1))
+            buffer.insert_with_tags(start_iter, m.group(2) + "\n", tags[f"h{level}"])
+            continue
+
+        # 引用
+        m = re.match(r"^>\s?(.*)$", line)
+        if m:
+            buffer.insert_with_tags(start_iter, m.group(1) + "\n", tags["quote"])
+            continue
+
+        # 无序列表
+        m = re.match(r"^[-+*]\s+(.*)$", line)
+        if m:
+            buffer.insert_with_tags(start_iter, "• " + m.group(1) + "\n", tags["list"])
+            continue
+
+        # 有序列表
+        m = re.match(r"^\d+\.\s+(.*)$", line)
+        if m:
+            buffer.insert_with_tags(start_iter, "◦ " + m.group(1) + "\n", tags["list"])
+            continue
+
+        # 表格
+        if "|" in line:
+            cells = [c.strip() for c in line.split("|")]
+            for i, c in enumerate(cells):
+                buffer.insert_with_tags(start_iter, c)
+                if i != len(cells) - 1:
+                    buffer.insert(start_iter, " | ")
+            buffer.insert(start_iter, "\n")
+            continue
+
+        # 行内代码 `code`
+        line = re.sub(r"`([^`]+)`", lambda m: f"«{m.group(1)}»", line)
+
+        # 粗斜体 ***text*** 或 **text** 或 *text*
+        line = re.sub(r"\*\*\*([^\*]+)\*\*\*", lambda m: f"{{{m.group(1)}}}", line)
+        line = re.sub(r"\*\*([^\*]+)\*\*", lambda m: f"[{m.group(1)}]", line)
+        line = re.sub(r"\*([^\*]+)\*", lambda m: f"({m.group(1)})", line)
+
+        # 下划线 __text__
+        line = re.sub(r"__([^\_]+)__", lambda m: f"_{m.group(1)}_", line)
+        # 删除线 ~~text~~
+        line = re.sub(r"~~([^~]+)~~", lambda m: f"-{m.group(1)}-", line)
+
+        # 链接 [text](url)
+        line = re.sub(
+            r"\[([^\]]+)\]\(([^)]+)\)", lambda m: f"{m.group(1)} ({m.group(2)})", line
+        )
+
+        # 插入文本和 tag
+        iter_pos = buffer.get_end_iter()
+        i = 0
+        while i < len(line):
+            char = line[i]
+            tag = None
+            if char == "«":  # code start
+                end = line.find("»", i)
+                if end != -1:
+                    buffer.insert_with_tags(iter_pos, line[i + 1 : end], tags["code"])
+                    iter_pos = buffer.get_end_iter()
+                    i = end
+                else:
+                    buffer.insert(iter_pos, char)
+            elif char == "{":  # bolditalic
+                end = line.find("}", i)
+                if end != -1:
+                    buffer.insert_with_tags(
+                        iter_pos, line[i + 1 : end], tags["bolditalic"]
+                    )
+                    iter_pos = buffer.get_end_iter()
+                    i = end
+                else:
+                    buffer.insert(iter_pos, char)
+            elif char == "[":  # bold
+                end = line.find("]", i)
+                if end != -1:
+                    buffer.insert_with_tags(iter_pos, line[i + 1 : end], tags["bold"])
+                    iter_pos = buffer.get_end_iter()
+                    i = end
+                else:
+                    buffer.insert(iter_pos, char)
+            elif char == "(":  # italic
+                end = line.find(")", i)
+                if end != -1:
+                    buffer.insert_with_tags(iter_pos, line[i + 1 : end], tags["italic"])
+                    iter_pos = buffer.get_end_iter()
+                    i = end
+                else:
+                    buffer.insert(iter_pos, char)
+            elif char == "_":  # underline
+                end = line.find("_", i + 1)
+                if end != -1:
+                    buffer.insert_with_tags(
+                        iter_pos, line[i + 1 : end], tags["underline"]
+                    )
+                    iter_pos = buffer.get_end_iter()
+                    i = end
+                else:
+                    buffer.insert(iter_pos, char)
+            elif char == "-":  # strikethrough
+                end = line.find("-", i + 1)
+                if end != -1:
+                    buffer.insert_with_tags(
+                        iter_pos, line[i + 1 : end], tags["strikethrough"]
+                    )
+                    iter_pos = buffer.get_end_iter()
+                    i = end
+                else:
+                    buffer.insert(iter_pos, char)
+            else:
+                buffer.insert(iter_pos, char)
+            iter_pos = buffer.get_end_iter()
+            i += 1
+        buffer.insert(buffer.get_end_iter(), "\n")
 
 
 if __name__ == "__main__":

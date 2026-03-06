@@ -1,73 +1,58 @@
+#!/usr/bin/env python3
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gtk
+from gi.repository import Gio, GObject, Gtk
 
 
-class NoteApp(Gtk.Application):
+class StringItem(GObject.Object):
+    value = GObject.Property(type=str)
+
+    def __init__(self, value):
+        super().__init__()
+        self.value = value
+
+
+class ListViewWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="GTK4 ListView 示例")
+        self.set_default_size(300, 200)
+
+        # 模型
+        items = ["苹果", "香蕉", "橙子", "葡萄", "西瓜"]
+        list_store = Gio.ListStore.new(StringItem)
+        for item in items:
+            list_store.append(StringItem(item))
+
+        selection_model = Gtk.SingleSelection.new(list_store)
+
+        # 工厂
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self.setup_factory)
+        factory.connect("bind", self.bind_factory)
+
+        # ListView
+        list_view = Gtk.ListView.new(selection_model, factory)
+        self.set_child(list_view)
+
+    def setup_factory(self, factory, list_item):
+        label = Gtk.Label()
+        list_item.set_child(label)
+
+    def bind_factory(self, factory, list_item):
+        label = list_item.get_child()
+        item = list_item.get_item()
+        label.set_text(item.value)
+
+
+class MyApp(Gtk.Application):
     def __init__(self):
-        super().__init__(application_id="com.notes.gitapp")
-        self.window = Gtk.ApplicationWindow(application=self)
-        self.window.set_default_size(1200, 800)
+        super().__init__(application_id="org.example.ListViewApp")
 
-        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        toolbar.set_hexpand(True)
-        toolbar.set_vexpand(False)
-
-        self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_valign(Gtk.Align.FILL)
-        self.search_entry.set_width_chars(50)
-        self.search_entry.connect("activate", self.on_search_icon_activated)
-        toolbar.append(self.search_entry)
-
-        css = """
-        searchentry {
-            background-image: none;
-            background-color: #2e2e2e;
-            border: none;
-            border-radius: 0;
-            box-shadow: none;
-            padding: 0;
-        }
-
-        searchentry entry {
-            background-image: none;
-            background-color: #2e2e2e;
-            border: none;
-            border-radius: 0;
-            box-shadow: none;
-            padding: 4px;
-            color: #ffffff;
-        }
-
-        searchentry entry:focus {
-            background-image: none;
-            background-color: #2e2e2e;
-            border: none;
-            box-shadow: none;
-        }
-
-        searchentry entry:backdrop {
-            background-image: none;
-            background-color: #2e2e2e;
-        }
-
-        searchentry entry:icon-secondary {
-            -GtkEntry-icon-position: secondary;
-        }
-        """
-        style_provider = Gtk.CssProvider()
-        style_provider.load_from_data(css.encode())
-        Gtk.StyleContext.add_provider_for_display(
-            Gdk.Display.get_default(),
-            style_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
-
-    def on_search_icon_activated(self, entry):
-        print("Search activated:", entry.get_text())
+    def do_activate(self):
+        win = ListViewWindow(self)
+        win.present()
 
 
-if __name__ == "__main__":
-    app = NoteApp()
-    app.run()
+app = MyApp()
+app.run()
