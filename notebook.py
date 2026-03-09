@@ -357,6 +357,9 @@ class NoteApp(Gtk.Application):
         note_textview.set_bottom_margin(35)
         note_scrolled_view.get_style_context().add_class("note-area")
         note_textview.set_name("note-textview")
+        # click = Gtk.GestureClick()
+        # click.connect("pressed", on_textview_click, link_ranges)
+        # textview.add_controller(click)
 
         edit_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         edit_box.set_hexpand(True)
@@ -692,180 +695,192 @@ class NoteApp(Gtk.Application):
             True,
         )
         render_markdown(self.note_textbuffer, content)
-
         self._markdown_render_timeout_id = None
         return False
 
 
 def render_markdown(buffer, text):
+    import re
+
     buffer.set_text("")
     tags = {}
 
-    def get_or_create_tag(buffer, name, **props):
+    def get_tag(name, **props):
         tag = buffer.get_tag_table().lookup(name)
         if not tag:
             tag = buffer.create_tag(name, **props)
         return tag
 
-    # 标题
     for i in range(1, 7):
-        tags[f"h{i}"] = get_or_create_tag(
-            buffer, f"h{i}", weight=Pango.Weight.BOLD, size_points=24 - (i - 1) * 2
-        )
-    # 字体样式
-    tags["bold"] = get_or_create_tag(buffer, "bold", weight=Pango.Weight.BOLD)
-    tags["italic"] = get_or_create_tag(buffer, "italic", style=Pango.Style.ITALIC)
-    tags["bolditalic"] = get_or_create_tag(
-        buffer, "bolditalic", weight=Pango.Weight.BOLD, style=Pango.Style.ITALIC
+        tags[f"h{i}"] = get_tag(f"h{i}", weight=700, size_points=24 - (i - 1) * 2)
+    tags["bold"] = get_tag("bold", weight=700)
+    tags["italic"] = get_tag("italic", style=1)
+    tags["bolditalic"] = get_tag("bolditalic", weight=700, style=1)
+    tags["underline"] = get_tag("underline", underline=1)
+    tags["strikethrough"] = get_tag("strikethrough", strikethrough=True)
+    tags["quote"] = get_tag(
+        "quote", background="#2b2b2b", left_margin=20, foreground="#888888"
     )
-    tags["strikethrough"] = get_or_create_tag(
-        buffer, "strikethrough", strikethrough=True
+    tags["list_symbol"] = get_tag("list_symbol", foreground="#ffcc00")
+    tags["list"] = get_tag("list", left_margin=20)
+    tags["code"] = get_tag(
+        "code",
+        family="Monospace",
+        foreground="#d4d4d4",
+        background="#b3f0d8",
+        pixels_above_lines=2,
+        pixels_below_lines=2,
+        left_margin=0,
+        right_margin=0,
     )
-    tags["underline"] = get_or_create_tag(
-        buffer, "underline", underline=Pango.Underline.SINGLE
+    tags["code_keyword"] = get_tag("code_keyword", foreground="#569CD6", weight=700)
+    tags["code_func"] = get_tag("code_func", foreground="#DCDCAA")
+    tags["inline_code"] = get_tag(
+        "inline_code", foreground="#d4d4d4", background="#444444"
     )
-    tags["list"] = get_or_create_tag(buffer, "list", left_margin=20)
-    tags["quote"] = get_or_create_tag(
-        buffer, "quote", foreground="#888888", left_margin=20
-    )
-    tags["code"] = get_or_create_tag(
-        buffer, "code", family="Monospace", background="#2b2b2b", foreground="#a0a0a0"
-    )
-    tags["link"] = get_or_create_tag(
-        buffer, "link", foreground="#1E90FF", underline=Pango.Underline.SINGLE
-    )
-    tags["hr"] = get_or_create_tag(buffer, "hr", foreground="#888888")
+    tags["link"] = get_tag("link", foreground="#1E90FF", underline=1)
+    tags["hr"] = get_tag("hr", foreground="#888888")
 
     lines = text.split("\n")
-    for line in lines:
-        start_iter = buffer.get_end_iter()
-        line = line.rstrip()
+    in_code_block = False
+    code_content = []
 
-        # 分割线
-        if re.match(r"^([-*_]{3,})$", line):
+    def render_inline(line):
+        pos = buffer.get_end_iter()
+
+        def replace_inline_code(m):
             buffer.insert_with_tags(
-                start_iter, "────────────────────────\n", tags["hr"]
+                buffer.get_end_iter(), m.group(1), tags["inline_code"]
             )
-            continue
+            return ""
 
-        # 标题
-        m = re.match(r"^(#{1,6})\s+(.*)$", line)
-        if m:
-            level = len(m.group(1))
-            buffer.insert_with_tags(start_iter, m.group(2) + "\n", tags[f"h{level}"])
-            continue
-
-        # 引用
-        m = re.match(r"^>\s?(.*)$", line)
-        if m:
-            buffer.insert_with_tags(start_iter, m.group(1) + "\n", tags["quote"])
-            continue
-
-        # 无序列表
-        m = re.match(r"^[-+*]\s+(.*)$", line)
-        if m:
-            buffer.insert_with_tags(start_iter, "• " + m.group(1) + "\n", tags["list"])
-            continue
-
-        # 有序列表
-        m = re.match(r"^\d+\.\s+(.*)$", line)
-        if m:
-            buffer.insert_with_tags(start_iter, "◦ " + m.group(1) + "\n", tags["list"])
-            continue
-
-        # 表格
-        if "|" in line:
-            cells = [c.strip() for c in line.split("|")]
-            for i, c in enumerate(cells):
-                buffer.insert_with_tags(start_iter, c)
-                if i != len(cells) - 1:
-                    buffer.insert(start_iter, " | ")
-            buffer.insert(start_iter, "\n")
-            continue
-
-        # 行内代码 `code`
-        line = re.sub(r"`([^`]+)`", lambda m: f"«{m.group(1)}»", line)
-
-        # 粗斜体 ***text*** 或 **text** 或 *text*
-        line = re.sub(r"\*\*\*([^\*]+)\*\*\*", lambda m: f"{{{m.group(1)}}}", line)
-        line = re.sub(r"\*\*([^\*]+)\*\*", lambda m: f"[{m.group(1)}]", line)
-        line = re.sub(r"\*([^\*]+)\*", lambda m: f"({m.group(1)})", line)
-
-        # 下划线 __text__
-        line = re.sub(r"__([^\_]+)__", lambda m: f"_{m.group(1)}_", line)
-        # 删除线 ~~text~~
-        line = re.sub(r"~~([^~]+)~~", lambda m: f"-{m.group(1)}-", line)
-
-        # 链接 [text](url)
+        line = re.sub(r"`([^`]+)`", replace_inline_code, line)
         line = re.sub(
-            r"\[([^\]]+)\]\(([^)]+)\)", lambda m: f"{m.group(1)} ({m.group(2)})", line
+            r"\*\*([^\*]+)\*\*",
+            lambda m: (
+                buffer.insert_with_tags(buffer.get_end_iter(), m.group(1), tags["bold"])
+                or ""
+            ),
+            line,
+        )
+        line = re.sub(
+            r"\*([^\*]+)\*",
+            lambda m: (
+                buffer.insert_with_tags(
+                    buffer.get_end_iter(), m.group(1), tags["italic"]
+                )
+                or ""
+            ),
+            line,
+        )
+        line = re.sub(
+            r"__([^_]+)__",
+            lambda m: (
+                buffer.insert_with_tags(
+                    buffer.get_end_iter(), m.group(1), tags["underline"]
+                )
+                or ""
+            ),
+            line,
+        )
+        line = re.sub(
+            r"~~([^~]+)~~",
+            lambda m: (
+                buffer.insert_with_tags(
+                    buffer.get_end_iter(), m.group(1), tags["strikethrough"]
+                )
+                or ""
+            ),
+            line,
         )
 
-        # 插入文本和 tag
-        iter_pos = buffer.get_end_iter()
-        i = 0
-        while i < len(line):
-            char = line[i]
-            tag = None
-            if char == "«":  # code start
-                end = line.find("»", i)
-                if end != -1:
-                    buffer.insert_with_tags(iter_pos, line[i + 1 : end], tags["code"])
-                    iter_pos = buffer.get_end_iter()
-                    i = end
-                else:
-                    buffer.insert(iter_pos, char)
-            elif char == "{":  # bolditalic
-                end = line.find("}", i)
-                if end != -1:
-                    buffer.insert_with_tags(
-                        iter_pos, line[i + 1 : end], tags["bolditalic"]
-                    )
-                    iter_pos = buffer.get_end_iter()
-                    i = end
-                else:
-                    buffer.insert(iter_pos, char)
-            elif char == "[":  # bold
-                end = line.find("]", i)
-                if end != -1:
-                    buffer.insert_with_tags(iter_pos, line[i + 1 : end], tags["bold"])
-                    iter_pos = buffer.get_end_iter()
-                    i = end
-                else:
-                    buffer.insert(iter_pos, char)
-            elif char == "(":  # italic
-                end = line.find(")", i)
-                if end != -1:
-                    buffer.insert_with_tags(iter_pos, line[i + 1 : end], tags["italic"])
-                    iter_pos = buffer.get_end_iter()
-                    i = end
-                else:
-                    buffer.insert(iter_pos, char)
-            elif char == "_":  # underline
-                end = line.find("_", i + 1)
-                if end != -1:
-                    buffer.insert_with_tags(
-                        iter_pos, line[i + 1 : end], tags["underline"]
-                    )
-                    iter_pos = buffer.get_end_iter()
-                    i = end
-                else:
-                    buffer.insert(iter_pos, char)
-            elif char == "-":  # strikethrough
-                end = line.find("-", i + 1)
-                if end != -1:
-                    buffer.insert_with_tags(
-                        iter_pos, line[i + 1 : end], tags["strikethrough"]
-                    )
-                    iter_pos = buffer.get_end_iter()
-                    i = end
-                else:
-                    buffer.insert(iter_pos, char)
-            else:
-                buffer.insert(iter_pos, char)
-            iter_pos = buffer.get_end_iter()
-            i += 1
-        buffer.insert(buffer.get_end_iter(), "\n")
+        def link_repl(m):
+            buffer.insert_with_tags(buffer.get_end_iter(), m.group(1), tags["link"])
+            return ""
+
+        pattern = r"\[([^\]]+(\[[^\]]*\])*)\]\([^)]+\)"
+        line = re.sub(pattern, link_repl, line)
+        buffer.insert_with_tags(buffer.get_end_iter(), line + "\n")
+
+    for line in lines:
+        stripped = line.lstrip()
+        start_iter = buffer.get_end_iter()
+        if re.match(r"^([-*_]{3,})$", stripped) or stripped == "---":
+            buffer.insert_with_tags(buffer.get_end_iter(), "─" * 100 + "\n", tags["hr"])
+            continue
+        if re.match(r"^(#{1,6})\s+(.*)$", stripped):
+            level = len(re.match(r"^(#{1,6})\s+", stripped).group(1))
+            buffer.insert_with_tags(
+                start_iter, stripped[level + 1 :] + "\n", tags[f"h{level}"]
+            )
+            continue
+        if re.match(r"^>\s?(.*)$", stripped):
+            buffer.insert_with_tags(start_iter, stripped[1:] + "\n", tags["quote"])
+            continue
+        if re.match(r"^(\d+)\.\s+(.*)$", stripped):
+            m = re.match(r"^(\d+)\.\s+(.*)$", stripped)
+            buffer.insert_with_tags(start_iter, m.group(1) + ". ", tags["list_symbol"])
+            render_inline(m.group(2))
+            continue
+        if re.match(r"^([-+*])\s+(.*)$", stripped):
+            buffer.insert_with_tags(start_iter, "• ", tags["list_symbol"])
+            render_inline(re.match(r"^([-+*])\s+(.*)$", stripped).group(2))
+            continue
+            if line.startswith("```") or (
+                line.startswith("    ") and not in_code_block
+            ):
+                in_code_block = True
+                code_content = []
+                continue
+            if in_code_block:
+                if line.startswith("```") or line == "":
+                    in_code_block = False
+                    for code_line in code_content:
+                        start_iter = buffer.get_end_iter()
+                        buffer.insert_with_tags(
+                            start_iter, code_line + "\n", tags["code"]
+                        )
+                        # 关键字高亮
+                        for w in re.finditer(
+                            r"\b(def|return|for|if|else|while|import|class|package|func|var|type)\b",
+                            code_line,
+                        ):
+                            buffer.apply_tag(
+                                tags["code_keyword"],
+                                buffer.get_iter_at_offset(
+                                    start_iter.get_offset() + w.start()
+                                ),
+                                buffer.get_iter_at_offset(
+                                    start_iter.get_offset() + w.end()
+                                ),
+                            )
+                        # 函数名高亮
+                        for f in re.finditer(r"\b([a-zA-Z_]\w*)\s*(?=\()", code_line):
+                            buffer.apply_tag(
+                                tags["code_func"],
+                                buffer.get_iter_at_offset(
+                                    start_iter.get_offset() + f.start()
+                                ),
+                                buffer.get_iter_at_offset(
+                                    start_iter.get_offset() + f.end()
+                                ),
+                            )
+                    continue
+                code_content.append(line)  # 保留所有空格，不 lstrip
+                continue
+        render_inline(stripped)
+
+
+def on_textview_click(gesture, n_press, x, y, link_ranges):
+    textview = gesture.get_widget()
+    iter_ = textview.get_iter_at_location(int(x), int(y))
+    offset = iter_.get_offset()
+    for (start, end), url in link_ranges.items():
+        if start <= offset < end:
+            import webbrowser
+
+            webbrowser.open(url)
+            break
 
 
 if __name__ == "__main__":
