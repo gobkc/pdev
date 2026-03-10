@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 依赖安装 sudo apt install libgtksourceview-5-dev gir1.2-gtksource-5
 import json
 import os
 import re
@@ -8,9 +9,10 @@ from datetime import datetime
 
 import gi
 
+gi.require_version("GtkSource", "5")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, Gio, GLib, GObject, Gtk, Pango
+from gi.repository import Gdk, Gio, GLib, GObject, Gtk, GtkSource, Pango
 
 HOME_DIR = os.path.expanduser("~")
 APP_DIR = os.path.join(HOME_DIR, ".local/.books")
@@ -152,7 +154,7 @@ class NoteApp(Gtk.Application):
             return
         with open(note_file, "r") as f:
             content = f.read()
-        render_markdown(self.note_textbuffer, content)
+        render_markdown(self.note_textbuffer, self.note_textview, content)
         stats = os.stat(note_file)
         created = datetime.fromtimestamp(stats.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
         # display_text = (
@@ -237,7 +239,11 @@ class NoteApp(Gtk.Application):
         self.window = Gtk.ApplicationWindow(application=self)
         self.window.set_default_size(1200, 800)
         self.window.maximize()
-        self.window.set_title("Git Notebook")
+        header = Gtk.HeaderBar()
+        header.set_show_title_buttons(True)
+        title_label = Gtk.Label(label="Git Notebook")
+        header.set_title_widget(title_label)
+        self.window.set_titlebar(header)
         Gtk.Settings.get_default().set_property(
             "gtk-application-prefer-dark-theme", True
         )
@@ -346,20 +352,18 @@ class NoteApp(Gtk.Application):
         note_scrolled.set_child(note_box)
 
         self.note_textbuffer = Gtk.TextBuffer()
-        note_textview = Gtk.TextView(buffer=self.note_textbuffer)
-        note_textview.set_editable(False)
+        self.note_textview = Gtk.TextView(buffer=self.note_textbuffer)
+        self.note_textview.set_editable(False)
         note_scrolled_view = Gtk.ScrolledWindow()
-        note_scrolled_view.set_child(note_textview)
-        note_scrolled_view.set_vexpand(True)
-        note_textview.set_left_margin(35)
-        note_textview.set_right_margin(35)
-        note_textview.set_top_margin(35)
-        note_textview.set_bottom_margin(35)
+        note_scrolled_view.set_child(self.note_textview)
+        self.note_textview.set_left_margin(35)
+        self.note_textview.set_right_margin(35)
+        self.note_textview.set_top_margin(35)
+        self.note_textview.set_bottom_margin(35)
+        self.note_textview.set_vexpand(True)
+        self.note_textview.set_hexpand(True)
         note_scrolled_view.get_style_context().add_class("note-area")
-        note_textview.set_name("note-textview")
-        # click = Gtk.GestureClick()
-        # click.connect("pressed", on_textview_click, link_ranges)
-        # textview.add_controller(click)
+        self.note_textview.set_name("note-textview")
 
         edit_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         edit_box.set_hexpand(True)
@@ -389,6 +393,43 @@ class NoteApp(Gtk.Application):
         edit_box_time_text.set_halign(Gtk.Align.END)
         edit_box_titilebar.append(edit_box_time_text)
         edit_box.append(edit_box_titilebar)
+        # search bar
+        self.edit_search_bar = Gtk.Revealer()
+        self.edit_search_bar.set_reveal_child(True)
+        edit_search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        edit_search_box.set_margin_top(6)
+        edit_search_box.set_margin_bottom(6)
+        edit_search_box.set_margin_start(6)
+        edit_search_box.set_margin_end(6)
+
+        self.edit_search_entry = Gtk.SearchEntry()
+        self.edit_search_entry.set_hexpand(True)
+
+        # self.edit_search_entry.connect("search-changed", self.on_search_changed)
+        # self.edit_search_entry.connect("activate", self.search_next)
+
+        # 上一个
+        self.edit_btn_prev = Gtk.Button(label="<")
+        self.edit_btn_prev.set_tooltip_text("Previous")
+        # self.edit_btn_prev.connect("clicked", lambda x: self.search_previous())
+
+        # 下一个
+        self.edit_btn_next = Gtk.Button(label=">")
+        self.edit_btn_next.set_tooltip_text("Next")
+        # self.edit_btn_next.connect("clicked", lambda x: self.search_next())
+
+        # 关闭
+        edit_close_btn = Gtk.Button(label="✕")
+        edit_close_btn.set_tooltip_text("Close search")
+        # edit_close_btn.connect("clicked", self.hide_search)
+        edit_search_box.append(self.edit_search_entry)
+        edit_search_box.append(self.edit_btn_prev)
+        edit_search_box.append(self.edit_btn_next)
+        edit_search_box.append(edit_close_btn)
+        self.edit_search_bar.set_child(edit_search_box)
+        edit_box.append(self.edit_search_bar)
+        # search bar ui结束
+
         self.edit_box_markdown_text = Gtk.TextBuffer()
         edit_box_markdown_text = Gtk.TextView(buffer=self.edit_box_markdown_text)
         edit_box_markdown_text.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
@@ -440,6 +481,11 @@ class NoteApp(Gtk.Application):
 
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(b"""
+        .main-window ,headerbar {
+            background-color: black;
+            background-image: none;
+            color: white;
+        }
         .toolbar {
             background-color: #26282b;
             border-bottom:1px solid black;
@@ -694,16 +740,16 @@ class NoteApp(Gtk.Application):
             self.edit_box_markdown_text.get_end_iter(),
             True,
         )
-        render_markdown(self.note_textbuffer, content)
+        render_markdown(self.note_textbuffer, self.note_textview, content)
         self._markdown_render_timeout_id = None
         return False
 
 
-def render_markdown(buffer, text):
-    import re
-
+def render_markdown(buffer: Gtk.TextBuffer, textview: Gtk.TextView, text: str):
     buffer.set_text("")
     tags = {}
+    style_manager = GtkSource.StyleSchemeManager.get_default()
+    scheme = style_manager.get_scheme("oblivion")
 
     def get_tag(name, **props):
         tag = buffer.get_tag_table().lookup(name)
@@ -711,50 +757,38 @@ def render_markdown(buffer, text):
             tag = buffer.create_tag(name, **props)
         return tag
 
+    # Markdown 标签
     for i in range(1, 7):
         tags[f"h{i}"] = get_tag(f"h{i}", weight=700, size_points=24 - (i - 1) * 2)
     tags["bold"] = get_tag("bold", weight=700)
     tags["italic"] = get_tag("italic", style=1)
-    tags["bolditalic"] = get_tag("bolditalic", weight=700, style=1)
     tags["underline"] = get_tag("underline", underline=1)
     tags["strikethrough"] = get_tag("strikethrough", strikethrough=True)
-    tags["quote"] = get_tag(
-        "quote", background="#2b2b2b", left_margin=20, foreground="#888888"
-    )
     tags["list_symbol"] = get_tag("list_symbol", foreground="#ffcc00")
-    tags["list"] = get_tag("list", left_margin=20)
-    tags["code"] = get_tag(
-        "code",
-        family="Monospace",
-        foreground="#d4d4d4",
-        background="#b3f0d8",
-        pixels_above_lines=2,
-        pixels_below_lines=2,
-        left_margin=0,
-        right_margin=0,
-    )
-    tags["code_keyword"] = get_tag("code_keyword", foreground="#569CD6", weight=700)
-    tags["code_func"] = get_tag("code_func", foreground="#DCDCAA")
     tags["inline_code"] = get_tag(
         "inline_code", foreground="#d4d4d4", background="#444444"
     )
     tags["link"] = get_tag("link", foreground="#1E90FF", underline=1)
-    tags["hr"] = get_tag("hr", foreground="#888888")
 
     lines = text.split("\n")
     in_code_block = False
     code_content = []
+    code_block_marker = None
+    code_block_language = None
 
     def render_inline(line):
-        pos = buffer.get_end_iter()
-
-        def replace_inline_code(m):
-            buffer.insert_with_tags(
-                buffer.get_end_iter(), m.group(1), tags["inline_code"]
-            )
-            return ""
-
-        line = re.sub(r"`([^`]+)`", replace_inline_code, line)
+        # 内联代码
+        line = re.sub(
+            r"`([^`]+)`",
+            lambda m: (
+                buffer.insert_with_tags(
+                    buffer.get_end_iter(), m.group(1), tags["inline_code"]
+                )
+                or ""
+            ),
+            line,
+        )
+        # 粗体 **
         line = re.sub(
             r"\*\*([^\*]+)\*\*",
             lambda m: (
@@ -763,6 +797,7 @@ def render_markdown(buffer, text):
             ),
             line,
         )
+        # 斜体 *
         line = re.sub(
             r"\*([^\*]+)\*",
             lambda m: (
@@ -773,6 +808,7 @@ def render_markdown(buffer, text):
             ),
             line,
         )
+        # 下划线 __
         line = re.sub(
             r"__([^_]+)__",
             lambda m: (
@@ -783,6 +819,7 @@ def render_markdown(buffer, text):
             ),
             line,
         )
+        # 删除线 ~~
         line = re.sub(
             r"~~([^~]+)~~",
             lambda m: (
@@ -793,82 +830,139 @@ def render_markdown(buffer, text):
             ),
             line,
         )
+        # 链接 [text](url)
+        line = re.sub(
+            r"\[([^\]]*(?:\[[^\]]*\][^\]]*)*)\]\([^)]+\)",
+            lambda m: (
+                buffer.insert_with_tags(buffer.get_end_iter(), m.group(1), tags["link"])
+                or ""
+            ),
+            line,
+        )
 
-        def link_repl(m):
-            buffer.insert_with_tags(buffer.get_end_iter(), m.group(1), tags["link"])
-            return ""
+        buffer.insert(buffer.get_end_iter(), line + "\n")
 
-        pattern = r"\[([^\]]+(\[[^\]]*\])*)\]\([^)]+\)"
-        line = re.sub(pattern, link_repl, line)
-        buffer.insert_with_tags(buffer.get_end_iter(), line + "\n")
-
-    for line in lines:
-        stripped = line.lstrip()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
         start_iter = buffer.get_end_iter()
-        if re.match(r"^([-*_]{3,})$", stripped) or stripped == "---":
-            buffer.insert_with_tags(buffer.get_end_iter(), "─" * 100 + "\n", tags["hr"])
+
+        # 代码块开始
+        code_start_match = re.match(r"^(`{3,})(\w+)?$", stripped)
+        if code_start_match and not in_code_block:
+            in_code_block = True
+            code_content = []
+            code_block_marker = code_start_match.group(1)
+            code_block_language = code_start_match.group(2)
+            i += 1
             continue
-        if re.match(r"^(#{1,6})\s+(.*)$", stripped):
-            level = len(re.match(r"^(#{1,6})\s+", stripped).group(1))
-            buffer.insert_with_tags(
-                start_iter, stripped[level + 1 :] + "\n", tags[f"h{level}"]
-            )
+
+        # 代码块结束
+        if in_code_block:
+            if stripped == code_block_marker:
+                # 插入 GtkSourceView
+                anchor = buffer.create_child_anchor(buffer.get_end_iter())
+                scrolled_window = Gtk.ScrolledWindow()
+                scrolled_window.set_hexpand(True)
+                scrolled_window.set_vexpand(
+                    False
+                )  # 不垂直扩展，让代码块根据内容调整高度
+                scrolled_window.set_propagate_natural_height(True)  # 根据内容调整高度
+                scrolled_window.set_max_content_height(400)  # 设置最大高度
+                scrolled_window.set_min_content_height(400)  # 设置最小高度
+                scrolled_window.set_min_content_width(600)  # 设置最小高度
+                scrolled_window.set_has_frame(True)  # 添加边框
+                scrolled_window.set_margin_top(5)
+                scrolled_window.set_margin_bottom(5)
+                lang_manager = GtkSource.LanguageManager.get_default()
+                source_buffer = GtkSource.Buffer()
+                if code_block_language:
+                    language = lang_manager.get_language(code_block_language)
+                    if language:
+                        source_buffer.set_language(language)
+                if scheme:
+                    source_buffer.set_style_scheme(scheme)
+                source_buffer.set_text("\n".join(code_content))
+                source_view = GtkSource.View.new_with_buffer(source_buffer)
+                source_view.set_monospace(True)
+                source_view.set_show_line_numbers(True)
+                source_view.set_hexpand(True)
+                source_view.set_vexpand(True)  # 让视图在 ScrolledWindow 中扩展
+                source_view.set_editable(False)  # 预览模式不可编辑
+                source_view.set_wrap_mode(Gtk.WrapMode.NONE)  # 代码块不换行
+                source_view.show()
+                scrolled_window.set_child(source_view)
+                scrolled_window.show()
+                textview.add_child_at_anchor(scrolled_window, anchor)
+                buffer.insert(buffer.get_end_iter(), "\n")
+                in_code_block = False
+                code_content = []
+                code_block_marker = None
+                code_block_language = None
+                i += 1
+                continue
+            else:
+                code_content.append(line)
+                i += 1
+                continue
+
+        # 分割线
+        if re.match(r"^([-*_]{3,})$", stripped):
+            anchor = buffer.create_child_anchor(start_iter)
+            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            separator.show()
+            textview.add_child_at_anchor(separator, anchor)
+            buffer.insert(buffer.get_end_iter(), "\n")
+            i += 1
             continue
-        if re.match(r"^>\s?(.*)$", stripped):
-            buffer.insert_with_tags(start_iter, stripped[1:] + "\n", tags["quote"])
+
+        # 标题
+        m = re.match(r"^(#{1,6})\s+(.*)$", stripped)
+        if m:
+            level = len(m.group(1))
+            buffer.insert_with_tags(start_iter, m.group(2) + "\n", tags[f"h{level}"])
+            i += 1
             continue
-        if re.match(r"^(\d+)\.\s+(.*)$", stripped):
-            m = re.match(r"^(\d+)\.\s+(.*)$", stripped)
+
+        # 块引用
+        m = re.match(r"^>\s?(.*)$", stripped)
+        if m:
+            content = m.group(1)
+            anchor = buffer.create_child_anchor(start_iter)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            box.set_margin_start(20)
+            box.set_margin_top(2)
+            box.set_margin_bottom(2)
+            label = Gtk.Label(label=content)
+            label.set_xalign(0)
+            label.set_wrap(True)
+            box.append(label)
+            box.show()
+            textview.add_child_at_anchor(box, anchor)
+            buffer.insert(buffer.get_end_iter(), "\n")
+            i += 1
+            continue
+
+        # 有序列表
+        m = re.match(r"^(\d+)\.\s+(.*)$", stripped)
+        if m:
             buffer.insert_with_tags(start_iter, m.group(1) + ". ", tags["list_symbol"])
             render_inline(m.group(2))
+            i += 1
             continue
-        if re.match(r"^([-+*])\s+(.*)$", stripped):
+
+        # 无序列表
+        m = re.match(r"^([-+*])\s+(.*)$", stripped)
+        if m:
             buffer.insert_with_tags(start_iter, "• ", tags["list_symbol"])
-            render_inline(re.match(r"^([-+*])\s+(.*)$", stripped).group(2))
+            render_inline(m.group(2))
+            i += 1
             continue
-            if line.startswith("```") or (
-                line.startswith("    ") and not in_code_block
-            ):
-                in_code_block = True
-                code_content = []
-                continue
-            if in_code_block:
-                if line.startswith("```") or line == "":
-                    in_code_block = False
-                    for code_line in code_content:
-                        start_iter = buffer.get_end_iter()
-                        buffer.insert_with_tags(
-                            start_iter, code_line + "\n", tags["code"]
-                        )
-                        # 关键字高亮
-                        for w in re.finditer(
-                            r"\b(def|return|for|if|else|while|import|class|package|func|var|type)\b",
-                            code_line,
-                        ):
-                            buffer.apply_tag(
-                                tags["code_keyword"],
-                                buffer.get_iter_at_offset(
-                                    start_iter.get_offset() + w.start()
-                                ),
-                                buffer.get_iter_at_offset(
-                                    start_iter.get_offset() + w.end()
-                                ),
-                            )
-                        # 函数名高亮
-                        for f in re.finditer(r"\b([a-zA-Z_]\w*)\s*(?=\()", code_line):
-                            buffer.apply_tag(
-                                tags["code_func"],
-                                buffer.get_iter_at_offset(
-                                    start_iter.get_offset() + f.start()
-                                ),
-                                buffer.get_iter_at_offset(
-                                    start_iter.get_offset() + f.end()
-                                ),
-                            )
-                    continue
-                code_content.append(line)  # 保留所有空格，不 lstrip
-                continue
-        render_inline(stripped)
+
+        # 普通文本
+        render_inline(line)
+        i += 1
 
 
 def on_textview_click(gesture, n_press, x, y, link_ranges):
