@@ -140,8 +140,6 @@ class NoteApp(Gtk.Application):
         self.note_liststore.remove_all()
         for note_file in self.notes.get(category, []):
             title = os.path.basename(note_file)
-            if search and search.lower() not in title.lower():
-                continue
             self.note_liststore.append(NoteItem(title, note_file))
         if (
             self.note_selection.get_selected_item() is None
@@ -164,7 +162,7 @@ class NoteApp(Gtk.Application):
         # self.note_textbuffer.set_text(display_text)
         self.edit_box_title_text.set_text(os.path.basename(note_file))
         self.edit_box_time_text_buffer.set_text(created)
-        self.edit_box_markdown_text.set_text(content)
+        self.edit_box_markdown_text_buffer.set_text(content)
 
     def on_search_icon_activated(self, search_entry):
         search_text = self.search_entry.get_text().strip()
@@ -223,10 +221,16 @@ class NoteApp(Gtk.Application):
         def on_cat_activated(list_view, position):
             item = cat_selection.get_selected_item()
             if item:
-                # 选中对应 category
                 self.current_category = item.name
-                self.update_category_list()
-                self.update_note_list(self.current_category)
+                # 高亮主界面的 category 列表
+                for i, cat_name in enumerate(self.categories):
+                    if cat_name == item.name:
+                        self.category_selection.set_selected(i)
+                        break
+                self.current_note = None
+                self.edit_box_title_text.set_text("")
+                self.edit_box_time_text_buffer.set_text("")
+                self.edit_box_markdown_text_buffer.set_text("")
                 dialog.destroy()
 
         cat_listview.connect("activate", on_cat_activated)
@@ -281,9 +285,26 @@ class NoteApp(Gtk.Application):
         def on_note_activated(list_view, position):
             item = note_selection.get_selected_item()
             if item:
-                self.current_category = os.path.basename(os.path.dirname(item.path))
-                self.update_category_list()
-                self.update_note_list(self.current_category)
+                # 找到 note 所在 category
+                category_of_note = None
+                for cat_name, notes in self.notes.items():
+                    if item.path in notes:
+                        category_of_note = cat_name
+                        break
+                if category_of_note:
+                    self.current_category = category_of_note
+                    # 高亮 category
+                    for i, cat_name in enumerate(self.categories):
+                        if cat_name == category_of_note:
+                            self.category_selection.set_selected(i)
+                            break
+                    # 高亮 note
+                    cat_notes = self.notes.get(category_of_note, [])
+                    for j, n_path in enumerate(cat_notes):
+                        if n_path == item.path:
+                            self.note_selection.set_selected(j)
+                            break
+
                 self.current_note = item.path
                 self.update_note_content(item.path)
                 dialog.destroy()
@@ -356,7 +377,7 @@ class NoteApp(Gtk.Application):
 
     def on_add_note_clicked(self, button):
         self.edit_box_title_text.set_text("")
-        self.edit_box_markdown_text.set_text("")
+        self.edit_box_markdown_text_buffer.set_text("")
         self.edit_box_time_text_buffer.set_text(
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
@@ -581,18 +602,18 @@ class NoteApp(Gtk.Application):
 
         self.edit_search_entry = Gtk.SearchEntry()
         self.edit_search_entry.set_hexpand(True)
-        # self.edit_search_entry.connect("search-changed", self.on_search_changed)
-        # self.edit_search_entry.connect("activate", self.search_next)
+        self.edit_search_entry.connect("search-changed", self.on_search_changed)
+        self.edit_search_entry.connect("activate", self.search_next)
 
         # 上一个
         self.edit_btn_prev = Gtk.Button(label="<")
         self.edit_btn_prev.set_tooltip_text("Previous")
-        # self.edit_btn_prev.connect("clicked", lambda x: self.search_previous())
+        self.edit_btn_prev.connect("clicked", lambda w: self.search_previous())
 
         # 下一个
         self.edit_btn_next = Gtk.Button(label=">")
         self.edit_btn_next.set_tooltip_text("Next")
-        # self.edit_btn_next.connect("clicked", lambda x: self.search_next())
+        self.edit_btn_next.connect("clicked", lambda w: self.search_next())
 
         # 关闭
         edit_close_btn = Gtk.Button(label="✕")
@@ -644,19 +665,21 @@ class NoteApp(Gtk.Application):
         edit_box.append(edit_box_titilebar)
         # edit titlebar end
 
-        self.edit_box_markdown_text = Gtk.TextBuffer()
-        edit_box_markdown_text = Gtk.TextView(buffer=self.edit_box_markdown_text)
-        edit_box_markdown_text.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        edit_box_markdown_text.set_hexpand(True)
-        edit_box_markdown_text.set_vexpand(True)
-        edit_box_markdown_text.set_left_margin(35)
-        edit_box_markdown_text.set_right_margin(35)
-        edit_box_markdown_text.set_top_margin(35)
-        edit_box_markdown_text.set_bottom_margin(35)
-        edit_box_markdown_text.set_name("markdown-text")
-        self.edit_box_markdown_text.connect("changed", self.on_markdown_changed)
+        self.edit_box_markdown_text_buffer = Gtk.TextBuffer()
+        self.edit_box_markdown_text = Gtk.TextView(
+            buffer=self.edit_box_markdown_text_buffer
+        )
+        self.edit_box_markdown_text.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.edit_box_markdown_text.set_hexpand(True)
+        self.edit_box_markdown_text.set_vexpand(True)
+        self.edit_box_markdown_text.set_left_margin(35)
+        self.edit_box_markdown_text.set_right_margin(35)
+        self.edit_box_markdown_text.set_top_margin(35)
+        self.edit_box_markdown_text.set_bottom_margin(35)
+        self.edit_box_markdown_text.set_name("markdown-text")
+        self.edit_box_markdown_text_buffer.connect("changed", self.on_markdown_changed)
         markdown_scrolled = Gtk.ScrolledWindow()
-        markdown_scrolled.set_child(edit_box_markdown_text)
+        markdown_scrolled.set_child(self.edit_box_markdown_text)
         markdown_scrolled.set_hexpand(True)
         markdown_scrolled.set_vexpand(True)
         edit_box.append(markdown_scrolled)
@@ -924,7 +947,7 @@ class NoteApp(Gtk.Application):
         self.bind_markdown_buttons()
 
     def bind_markdown_buttons(self):
-        buffer = self.edit_box_markdown_text  # TextBuffer 已经是 buffer
+        buffer = self.edit_box_markdown_text_buffer  # TextBuffer 已经是 buffer
 
         def wrap_selection(prefix, suffix=None):
             if suffix is None:
@@ -1092,9 +1115,9 @@ class NoteApp(Gtk.Application):
         os.makedirs(category_path, exist_ok=True)
         file_path = os.path.join(category_path, title)
 
-        content = self.edit_box_markdown_text.get_text(
-            self.edit_box_markdown_text.get_start_iter(),
-            self.edit_box_markdown_text.get_end_iter(),
+        content = self.edit_box_markdown_text_buffer.get_text(
+            self.edit_box_markdown_text_buffer.get_start_iter(),
+            self.edit_box_markdown_text_buffer.get_end_iter(),
             True,
         )
         with open(file_path, "w", encoding="utf-8") as f:
@@ -1215,6 +1238,10 @@ class NoteApp(Gtk.Application):
         label.set_text(item.title)
 
     def on_category_selected_changed(self, selection, param):
+        self.edit_box_title_text.set_text("")
+        self.edit_box_time_text_buffer.set_text("")
+        self.edit_box_markdown_text_buffer.set_text("")
+        self.current_note = None
         item = selection.get_selected_item()
         if item:
             self.current_category = item.name
@@ -1235,14 +1262,102 @@ class NoteApp(Gtk.Application):
         )
 
     def _render_markdown_preview(self):
-        content = self.edit_box_markdown_text.get_text(
-            self.edit_box_markdown_text.get_start_iter(),
-            self.edit_box_markdown_text.get_end_iter(),
+        content = self.edit_box_markdown_text_buffer.get_text(
+            self.edit_box_markdown_text_buffer.get_start_iter(),
+            self.edit_box_markdown_text_buffer.get_end_iter(),
             True,
         )
         render_markdown(self.note_textbuffer, self.note_textview, content)
         self._markdown_render_timeout_id = None
         return False
+
+    def on_search_changed(self, entry):
+        """搜索输入变化时，高亮所有匹配"""
+        text = entry.get_text()
+        buffer = self.edit_box_markdown_text_buffer
+        # 先清除之前的标签
+        start, end = buffer.get_start_iter(), buffer.get_end_iter()
+        buffer.remove_tag_by_name("search-highlight", start, end)
+
+        if not text:
+            return
+
+        # 创建高亮标签
+        tag = buffer.get_tag_table().lookup("search-highlight")
+        if not tag:
+            tag = Gtk.TextTag.new("search-highlight")
+            tag.set_property("background", "#15539e")
+            buffer.get_tag_table().add(tag)
+
+        # 遍历文本匹配
+        iter_ = buffer.get_start_iter()
+        while True:
+            match_start = iter_.forward_search(
+                text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
+            )
+            if not match_start:
+                break
+            match_iter_start, match_iter_end = match_start
+            buffer.apply_tag(tag, match_iter_start, match_iter_end)
+            iter_ = match_iter_end
+
+        # 设置第一个匹配为当前迭代器
+        first_match = buffer.get_start_iter().forward_search(
+            text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
+        )
+        if first_match:
+            start_iter, end_iter = first_match
+            buffer.place_cursor(end_iter)
+            self.edit_box_markdown_text.get_buffer().emit(
+                "mark-set", buffer.get_insert(), end_iter
+            )
+
+    def search_next(self, *args):
+        buffer = self.edit_box_markdown_text_buffer
+        text = self.edit_search_entry.get_text()
+        if not text:
+            return
+        cursor = buffer.get_iter_at_mark(buffer.get_insert())
+        next_match = cursor.forward_search(
+            text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
+        )
+        if next_match:
+            start_iter, end_iter = next_match
+            buffer.place_cursor(end_iter)
+            self.edit_box_markdown_text_buffer.get_buffer().emit(
+                "mark-set", buffer.get_insert(), end_iter
+            )
+        else:
+            # 从头开始
+            start_iter = buffer.get_start_iter()
+            next_match = start_iter.forward_search(
+                text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
+            )
+            if next_match:
+                start_iter, end_iter = next_match
+                buffer.place_cursor(end_iter)
+
+    def search_previous(self, *args):
+        buffer = self.edit_box_markdown_text_buffer
+        text = self.edit_search_entry.get_text()
+        if not text:
+            return
+        cursor = buffer.get_iter_at_mark(buffer.get_insert())
+        prev_match = cursor.backward_search(
+            text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
+        )
+        if prev_match:
+            start_iter, end_iter = prev_match
+            buffer.place_cursor(start_iter)
+        else:
+            # 从尾开始
+            end_iter = buffer.get_end_iter()
+            prev_match = end_iter.backward_search(
+                text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
+            )
+            if prev_match:
+                start_iter, end_iter = prev_match
+                buffer.place_cursor(start_iter)
 
 
 def render_markdown(buffer: Gtk.TextBuffer, textview: Gtk.TextView, text: str):
