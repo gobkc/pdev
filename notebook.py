@@ -945,6 +945,10 @@ class NoteApp(Gtk.Application):
         self.window.show()
         self.bind_global_shortcuts()
         self.bind_markdown_buttons()
+        # Categories 右键
+        self.bind_category_right_click()
+        # Notes 右键
+        self.bind_note_right_click()
 
     def bind_markdown_buttons(self):
         buffer = self.edit_box_markdown_text_buffer  # TextBuffer 已经是 buffer
@@ -1095,6 +1099,11 @@ class NoteApp(Gtk.Application):
             self.on_add_category_clicked(None)
             return True
 
+        # Ctrl + F 打开搜索并聚焦到搜索 entry
+        if ctrl_pressed and keyval == Gdk.KEY_f:
+            self.show_search()  # 你的 show_search 会显示搜索栏
+            self.edit_search_entry.grab_focus()  # 聚焦到搜索 entry
+            return True
         return False
 
     def show_search(self, *args):
@@ -1104,7 +1113,9 @@ class NoteApp(Gtk.Application):
     def hide_search(self, *args):
         self.edit_search_bar.set_reveal_child(False)
         self.edit_search_entry.set_text("")
-        # self.clear_highlight()
+        self.clear_highlight()
+        self.search_matches = []
+        self.current_match_index = -1
 
     def on_save_markdown_clicked(self, button):
         title = self.edit_box_title_text.get_text().strip()
@@ -1253,6 +1264,152 @@ class NoteApp(Gtk.Application):
             self.current_note = item.path
             self.update_note_content(item.path)
 
+    def bind_category_right_click(self):
+        controller = Gtk.GestureClick.new()
+        controller.set_button(3)  # 右键
+        controller.connect("pressed", self.on_category_right_click)
+        self.category_listview.add_controller(controller)
+
+    def on_category_right_click(self, gesture, n_press, x, y):
+        selected_item = self.category_selection.get_item_at_index(
+            int(y // 24)  # 假设每行高度约 24px，你可以用更精确方法
+        )
+        if not selected_item:
+            return
+        menu = Gtk.Menu()
+        rename = Gtk.MenuItem(label="Rename Category")
+        delete = Gtk.MenuItem(label="Delete Category")
+        menu.append(rename)
+        menu.append(delete)
+        menu.show_all()
+        menu.popup_at_pointer()
+
+    def rename_category(self, category_item):
+        dialog = Gtk.Dialog(title="Rename Category", transient_for=self.window)
+        dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "OK", Gtk.ResponseType.OK)
+        box = dialog.get_content_area()
+        entry = Gtk.Entry()
+        entry.set_text(category_item.name)
+        box.append(entry)
+        dialog.show()
+
+        def on_response(d, response_id):
+            if response_id == Gtk.ResponseType.OK:
+                new_name = entry.get_text().strip()
+                if new_name and new_name != category_item.name:
+                    old_path = os.path.join(GIT_DIR, category_item.name)
+                    new_path = os.path.join(GIT_DIR, new_name)
+                    if os.path.exists(old_path):
+                        os.rename(old_path, new_path)
+                    category_item.name = new_name
+                    self.load_notes()
+            d.destroy()
+
+        dialog.connect("response", on_response)
+
+    def delete_category(self, category_item):
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=f"Are you sure to delete category '{category_item.name}'?",
+        )
+        dialog.show()
+
+        def on_response(d, response_id):
+            if response_id == Gtk.ResponseType.OK:
+                path = os.path.join(GIT_DIR, category_item.name)
+                if os.path.exists(path):
+                    import shutil
+
+                    shutil.rmtree(path)
+                self.load_notes()
+            d.destroy()
+
+        dialog.connect("response", on_response)
+
+    # 绑定 note 的右键菜单
+    # 绑定 notes 右键菜单
+    def bind_note_right_click(self):
+        gesture = Gtk.GestureClick.new()
+        gesture.set_button(0)  # 捕获所有按钮
+        gesture.connect("pressed", self.on_note_right_click)
+        self.note_listview.add_controller(gesture)
+
+    # 右键点击回调
+    def on_note_right_click(self, gesture, n_press, x, y):
+        button = gesture.get_current_button()
+        if button != 3:  # 右键
+            return
+
+        # 获取点击位置对应的 note item
+        index = self.get_note_index_at_pos(y)
+        if index is None:
+            return
+
+        note_item = self.note_selection.get_item(index)  # 正确方法
+        if note_item is None:
+            return
+
+        # 弹出菜单
+        menu = Gtk.Menu()
+        rename_item = Gtk.MenuItem(label="Rename Note")
+        delete_item = Gtk.MenuItem(label="Delete Note")
+        menu.append(rename_item)
+        menu.append(delete_item)
+        menu.show_all()
+        menu.popup_at_pointer()
+
+    def get_note_index_at_pos(self, y):
+        # 假设每行高度固定为 row_height
+        row_height = 30
+        index = int(y // row_height)
+        if index < 0 or index >= len(self.note_model):
+            return None
+        return index
+
+    def rename_note(self, note_item):
+        dialog = Gtk.Dialog(title="Rename Note", transient_for=self.window)
+        dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "OK", Gtk.ResponseType.OK)
+        box = dialog.get_content_area()
+        entry = Gtk.Entry()
+        entry.set_text(note_item.title)
+        box.append(entry)
+        dialog.show()
+
+        def on_response(d, response_id):
+            if response_id == Gtk.ResponseType.OK:
+                new_title = entry.get_text().strip()
+                if new_title and new_title != note_item.title:
+                    old_path = note_item.path
+                    new_path = os.path.join(os.path.dirname(old_path), new_title)
+                    if os.path.exists(old_path):
+                        os.rename(old_path, new_path)
+                    self.load_notes()
+            d.destroy()
+
+        dialog.connect("response", on_response)
+
+    def delete_note(self, note_item):
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=f"Are you sure to delete note '{note_item.title}'?",
+        )
+        dialog.show()
+
+        def on_response(d, response_id):
+            if response_id == Gtk.ResponseType.OK:
+                if os.path.exists(note_item.path):
+                    os.remove(note_item.path)
+                self.load_notes()
+            d.destroy()
+
+        dialog.connect("response", on_response)
+
     def on_markdown_changed(self, textview):
         if self._markdown_render_timeout_id is not None:
             GLib.source_remove(self._markdown_render_timeout_id)
@@ -1275,89 +1432,64 @@ class NoteApp(Gtk.Application):
         """搜索输入变化时，高亮所有匹配"""
         text = entry.get_text()
         buffer = self.edit_box_markdown_text_buffer
-        # 先清除之前的标签
-        start, end = buffer.get_start_iter(), buffer.get_end_iter()
-        buffer.remove_tag_by_name("search-highlight", start, end)
+        self.clear_highlight()
+        self.search_matches = []
+        self.current_match_index = -1
 
         if not text:
             return
 
-        # 创建高亮标签
-        tag = buffer.get_tag_table().lookup("search-highlight")
-        if not tag:
-            tag = Gtk.TextTag.new("search-highlight")
-            tag.set_property("background", "#15539e")
-            buffer.get_tag_table().add(tag)
-
-        # 遍历文本匹配
-        iter_ = buffer.get_start_iter()
+        start_iter = buffer.get_start_iter()
         while True:
-            match_start = iter_.forward_search(
+            match = start_iter.forward_search(
                 text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
             )
-            if not match_start:
+            if not match:
                 break
-            match_iter_start, match_iter_end = match_start
-            buffer.apply_tag(tag, match_iter_start, match_iter_end)
-            iter_ = match_iter_end
-
-        # 设置第一个匹配为当前迭代器
-        first_match = buffer.get_start_iter().forward_search(
-            text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
-        )
-        if first_match:
-            start_iter, end_iter = first_match
-            buffer.place_cursor(end_iter)
-            self.edit_box_markdown_text.get_buffer().emit(
-                "mark-set", buffer.get_insert(), end_iter
+            match_start, match_end = match
+            self.search_matches.append((match_start.copy(), match_end.copy()))
+            # 添加高亮标签
+            buffer.create_tag(
+                "search-highlight",
+                background="#ffaa00",
+                foreground="#000000",
+                weight=Pango.Weight.BOLD,
             )
+            buffer.apply_tag_by_name("search-highlight", match_start, match_end)
+            start_iter = match_end
+
+        if self.search_matches:
+            self.current_match_index = 0
+            self.scroll_to_current_match()
+
+    def scroll_to_current_match(self):
+        if 0 <= self.current_match_index < len(self.search_matches):
+            start, end = self.search_matches[self.current_match_index]
+            self.edit_box_markdown_text.scroll_to_iter(start, 0.1, True, 0.5, 0.0)
+            # 可选：设置光标到当前匹配
+            buffer = self.edit_box_markdown_text_buffer
+            buffer.select_range(start, end)
 
     def search_next(self, *args):
-        buffer = self.edit_box_markdown_text_buffer
-        text = self.edit_search_entry.get_text()
-        if not text:
+        if not getattr(self, "search_matches", None):
             return
-        cursor = buffer.get_iter_at_mark(buffer.get_insert())
-        next_match = cursor.forward_search(
-            text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
-        )
-        if next_match:
-            start_iter, end_iter = next_match
-            buffer.place_cursor(end_iter)
-            self.edit_box_markdown_text_buffer.get_buffer().emit(
-                "mark-set", buffer.get_insert(), end_iter
-            )
-        else:
-            # 从头开始
-            start_iter = buffer.get_start_iter()
-            next_match = start_iter.forward_search(
-                text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
-            )
-            if next_match:
-                start_iter, end_iter = next_match
-                buffer.place_cursor(end_iter)
+        self.current_match_index += 1
+        if self.current_match_index >= len(self.search_matches):
+            self.current_match_index = 0
+        self.scroll_to_current_match()
 
     def search_previous(self, *args):
-        buffer = self.edit_box_markdown_text_buffer
-        text = self.edit_search_entry.get_text()
-        if not text:
+        if not getattr(self, "search_matches", None):
             return
-        cursor = buffer.get_iter_at_mark(buffer.get_insert())
-        prev_match = cursor.backward_search(
-            text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
-        )
-        if prev_match:
-            start_iter, end_iter = prev_match
-            buffer.place_cursor(start_iter)
-        else:
-            # 从尾开始
-            end_iter = buffer.get_end_iter()
-            prev_match = end_iter.backward_search(
-                text, Gtk.TextSearchFlags.CASE_INSENSITIVE, None
-            )
-            if prev_match:
-                start_iter, end_iter = prev_match
-                buffer.place_cursor(start_iter)
+        self.current_match_index -= 1
+        if self.current_match_index < 0:
+            self.current_match_index = len(self.search_matches) - 1
+        self.scroll_to_current_match()
+
+    def clear_highlight(self):
+        buffer = self.edit_box_markdown_text_buffer
+        start, end = buffer.get_start_iter(), buffer.get_end_iter()
+        buffer.remove_tag_by_name("search-highlight", start, end)
 
 
 def render_markdown(buffer: Gtk.TextBuffer, textview: Gtk.TextView, text: str):
