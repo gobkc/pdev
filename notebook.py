@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import threading
 from datetime import datetime
@@ -713,6 +714,10 @@ class NoteApp(Gtk.Application):
         def console_log(text):
             end_iter = self.console_buffer.get_end_iter()
             self.console_buffer.insert(end_iter, text + "\n")
+            mark = self.console_buffer.create_mark(
+                None, self.console_buffer.get_end_iter(), False
+            )
+            self.console_view.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
 
         self.console_log = console_log
 
@@ -945,10 +950,6 @@ class NoteApp(Gtk.Application):
         self.window.show()
         self.bind_global_shortcuts()
         self.bind_markdown_buttons()
-        # Categories 右键
-        self.bind_category_right_click()
-        # Notes 右键
-        self.bind_note_right_click()
 
     def bind_markdown_buttons(self):
         buffer = self.edit_box_markdown_text_buffer  # TextBuffer 已经是 buffer
@@ -1229,6 +1230,18 @@ class NoteApp(Gtk.Application):
         label.set_margin_start(15)
         label.set_xalign(0.0)
         list_item.set_child(label)
+        gesture = Gtk.GestureClick.new()
+        gesture.set_button(3)
+        gesture.connect(
+            "pressed",
+            lambda g, n, x, y: self.show_category_context_menu(
+                list_item.get_child(),
+                x,
+                y,
+                list_item.get_item().name,
+            ),
+        )
+        list_item.get_child().add_controller(gesture)
 
     def bind_category_factory(self, factory, list_item):
         item = list_item.get_item()
@@ -1242,6 +1255,188 @@ class NoteApp(Gtk.Application):
         label.set_margin_start(15)
         label.set_xalign(0.0)
         list_item.set_child(label)
+        gesture = Gtk.GestureClick.new()
+        gesture.set_button(3)
+        gesture.connect(
+            "pressed",
+            lambda g, n, x, y: self.show_note_context_menu(
+                list_item.get_child(),
+                x,
+                y,
+                list_item.get_item().path,
+            ),
+        )
+        list_item.get_child().add_controller(gesture)
+
+    def delete_category(self, category_name, popover):
+        popover.popdown()
+        dialog = Gtk.Dialog(
+            title=f"Delete category '{category_name}'?",
+            transient_for=self.window,
+            modal=True,
+        )
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Ok", Gtk.ResponseType.OK)
+        content_area = dialog.get_content_area()
+        label = Gtk.Label(
+            label=f"All notes inside '{category_name}' will be permanently deleted."
+        )
+        label.set_margin_top(20)
+        label.set_margin_bottom(20)
+        label.set_margin_start(20)
+        label.set_margin_end(20)
+        content_area.append(label)
+
+        def on_response(d, response):
+            if response == Gtk.ResponseType.OK:
+                category_path = os.path.join(GIT_DIR, category_name)
+                try:
+                    shutil.rmtree(category_path)
+                    self.console_log(f"delete category: {category_name}")
+                    self.load_notes()
+                except Exception as e:
+                    self.console_log(f"delete category failed: {e}")
+            d.destroy()
+
+        dialog.connect("response", on_response)
+        dialog.show()
+
+    def rename_category(self, category_name, popover):
+        popover.popdown()
+
+        dialog = Gtk.Dialog(
+            title="Rename Category",
+            transient_for=self.window,
+            modal=True,
+        )
+
+        dialog.add_buttons(
+            "Cancel",
+            Gtk.ResponseType.CANCEL,
+            "Rename",
+            Gtk.ResponseType.OK,
+        )
+
+        box = dialog.get_content_area()
+
+        entry = Gtk.Entry()
+        entry.set_text(category_name)
+
+        box.append(entry)
+
+        dialog.show()
+
+        def on_response(d, response):
+            if response == Gtk.ResponseType.OK:
+                new_name = entry.get_text().strip()
+
+                if new_name and new_name != category_name:
+                    old_path = os.path.join(GIT_DIR, category_name)
+                    new_path = os.path.join(GIT_DIR, new_name)
+
+                    try:
+                        os.rename(old_path, new_path)
+
+                        self.console_log(
+                            f"rename category: {category_name} -> {new_name}"
+                        )
+
+                        self.load_notes()
+
+                    except Exception as e:
+                        self.console_log(f"rename category failed: {e}")
+
+            d.destroy()
+
+        dialog.connect("response", on_response)
+
+    def delete_note(self, note_path, popover):
+        popover.popdown()
+
+        note_name = os.path.basename(note_path)
+
+        dialog = Gtk.Dialog(
+            title=f"Delete note '{note_name}'?",
+            transient_for=self.window,
+            modal=True,
+        )
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Ok", Gtk.ResponseType.OK)
+        content_area = dialog.get_content_area()
+        label = Gtk.Label(label=f"The '{note_name}' will be deleted.")
+        label.set_margin_top(20)
+        label.set_margin_bottom(20)
+        label.set_margin_start(20)
+        label.set_margin_end(20)
+        content_area.append(label)
+
+        def on_response(d, response):
+            if response == Gtk.ResponseType.OK:
+                try:
+                    os.remove(note_path)
+
+                    self.console_log(f"delete note: {note_name}")
+
+                    self.load_notes()
+
+                except Exception as e:
+                    self.console_log(f"delete note failed: {e}")
+
+            d.destroy()
+
+        dialog.connect("response", on_response)
+        dialog.show()
+
+    def rename_note(self, note_path, popover):
+        popover.popdown()
+
+        old_name = os.path.basename(note_path)
+
+        dialog = Gtk.Dialog(
+            title="Rename Note",
+            transient_for=self.window,
+            modal=True,
+        )
+
+        dialog.add_buttons(
+            "Cancel",
+            Gtk.ResponseType.CANCEL,
+            "Rename",
+            Gtk.ResponseType.OK,
+        )
+
+        box = dialog.get_content_area()
+
+        entry = Gtk.Entry()
+        entry.set_text(old_name)
+
+        box.append(entry)
+
+        dialog.show()
+
+        def on_response(d, response):
+            if response == Gtk.ResponseType.OK:
+                new_name = entry.get_text().strip()
+
+                if new_name and new_name != old_name:
+                    new_path = os.path.join(
+                        os.path.dirname(note_path),
+                        new_name,
+                    )
+
+                    try:
+                        os.rename(note_path, new_path)
+
+                        self.console_log(f"rename note: {old_name} -> {new_name}")
+
+                        self.load_notes()
+
+                    except Exception as e:
+                        self.console_log(f"rename note failed: {e}")
+
+            d.destroy()
+
+        dialog.connect("response", on_response)
 
     def bind_note_factory(self, factory, list_item):
         item = list_item.get_item()
@@ -1264,151 +1459,63 @@ class NoteApp(Gtk.Application):
             self.current_note = item.path
             self.update_note_content(item.path)
 
-    def bind_category_right_click(self):
-        controller = Gtk.GestureClick.new()
-        controller.set_button(3)  # 右键
-        controller.connect("pressed", self.on_category_right_click)
-        self.category_listview.add_controller(controller)
+    def show_category_context_menu(self, widget, x, y, category_name):
+        popover = Gtk.Popover()
+        popover.set_has_arrow(False)
+        popover.set_parent(widget)
 
-    def on_category_right_click(self, gesture, n_press, x, y):
-        selected_item = self.category_selection.get_item_at_index(
-            int(y // 24)  # 假设每行高度约 24px，你可以用更精确方法
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        delete_btn = Gtk.Button(label="Delete Category")
+        rename_btn = Gtk.Button(label="Rename Category")
+
+        delete_btn.connect(
+            "clicked", lambda b: self.delete_category(category_name, popover)
         )
-        if not selected_item:
-            return
-        menu = Gtk.Menu()
-        rename = Gtk.MenuItem(label="Rename Category")
-        delete = Gtk.MenuItem(label="Delete Category")
-        menu.append(rename)
-        menu.append(delete)
-        menu.show_all()
-        menu.popup_at_pointer()
-
-    def rename_category(self, category_item):
-        dialog = Gtk.Dialog(title="Rename Category", transient_for=self.window)
-        dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "OK", Gtk.ResponseType.OK)
-        box = dialog.get_content_area()
-        entry = Gtk.Entry()
-        entry.set_text(category_item.name)
-        box.append(entry)
-        dialog.show()
-
-        def on_response(d, response_id):
-            if response_id == Gtk.ResponseType.OK:
-                new_name = entry.get_text().strip()
-                if new_name and new_name != category_item.name:
-                    old_path = os.path.join(GIT_DIR, category_item.name)
-                    new_path = os.path.join(GIT_DIR, new_name)
-                    if os.path.exists(old_path):
-                        os.rename(old_path, new_path)
-                    category_item.name = new_name
-                    self.load_notes()
-            d.destroy()
-
-        dialog.connect("response", on_response)
-
-    def delete_category(self, category_item):
-        dialog = Gtk.MessageDialog(
-            transient_for=self.window,
-            modal=True,
-            message_type=Gtk.MessageType.QUESTION,
-            buttons=Gtk.ButtonsType.OK_CANCEL,
-            text=f"Are you sure to delete category '{category_item.name}'?",
+        rename_btn.connect(
+            "clicked", lambda b: self.rename_category(category_name, popover)
         )
-        dialog.show()
 
-        def on_response(d, response_id):
-            if response_id == Gtk.ResponseType.OK:
-                path = os.path.join(GIT_DIR, category_item.name)
-                if os.path.exists(path):
-                    import shutil
+        box.append(delete_btn)
+        box.append(rename_btn)
 
-                    shutil.rmtree(path)
-                self.load_notes()
-            d.destroy()
+        popover.set_child(box)
 
-        dialog.connect("response", on_response)
+        rect = Gdk.Rectangle()
+        rect.x = int(x)
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
 
-    # 绑定 note 的右键菜单
-    # 绑定 notes 右键菜单
-    def bind_note_right_click(self):
-        gesture = Gtk.GestureClick.new()
-        gesture.set_button(0)  # 捕获所有按钮
-        gesture.connect("pressed", self.on_note_right_click)
-        self.note_listview.add_controller(gesture)
+        popover.set_pointing_to(rect)
+        popover.popup()
 
-    # 右键点击回调
-    def on_note_right_click(self, gesture, n_press, x, y):
-        button = gesture.get_current_button()
-        if button != 3:  # 右键
-            return
+    def show_note_context_menu(self, widget, x, y, note_path):
+        popover = Gtk.Popover()
+        popover.set_has_arrow(False)
+        popover.set_parent(widget)
 
-        # 获取点击位置对应的 note item
-        index = self.get_note_index_at_pos(y)
-        if index is None:
-            return
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        note_item = self.note_selection.get_item(index)  # 正确方法
-        if note_item is None:
-            return
+        delete_btn = Gtk.Button(label="Delete Note")
+        rename_btn = Gtk.Button(label="Rename Note")
 
-        # 弹出菜单
-        menu = Gtk.Menu()
-        rename_item = Gtk.MenuItem(label="Rename Note")
-        delete_item = Gtk.MenuItem(label="Delete Note")
-        menu.append(rename_item)
-        menu.append(delete_item)
-        menu.show_all()
-        menu.popup_at_pointer()
+        delete_btn.connect("clicked", lambda b: self.delete_note(note_path, popover))
+        rename_btn.connect("clicked", lambda b: self.rename_note(note_path, popover))
 
-    def get_note_index_at_pos(self, y):
-        # 假设每行高度固定为 row_height
-        row_height = 30
-        index = int(y // row_height)
-        if index < 0 or index >= len(self.note_model):
-            return None
-        return index
+        box.append(delete_btn)
+        box.append(rename_btn)
 
-    def rename_note(self, note_item):
-        dialog = Gtk.Dialog(title="Rename Note", transient_for=self.window)
-        dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "OK", Gtk.ResponseType.OK)
-        box = dialog.get_content_area()
-        entry = Gtk.Entry()
-        entry.set_text(note_item.title)
-        box.append(entry)
-        dialog.show()
+        popover.set_child(box)
 
-        def on_response(d, response_id):
-            if response_id == Gtk.ResponseType.OK:
-                new_title = entry.get_text().strip()
-                if new_title and new_title != note_item.title:
-                    old_path = note_item.path
-                    new_path = os.path.join(os.path.dirname(old_path), new_title)
-                    if os.path.exists(old_path):
-                        os.rename(old_path, new_path)
-                    self.load_notes()
-            d.destroy()
+        rect = Gdk.Rectangle()
+        rect.x = int(x)
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
 
-        dialog.connect("response", on_response)
-
-    def delete_note(self, note_item):
-        dialog = Gtk.MessageDialog(
-            transient_for=self.window,
-            modal=True,
-            message_type=Gtk.MessageType.QUESTION,
-            buttons=Gtk.ButtonsType.OK_CANCEL,
-            text=f"Are you sure to delete note '{note_item.title}'?",
-        )
-        dialog.show()
-
-        def on_response(d, response_id):
-            if response_id == Gtk.ResponseType.OK:
-                if os.path.exists(note_item.path):
-                    os.remove(note_item.path)
-                self.load_notes()
-            d.destroy()
-
-        dialog.connect("response", on_response)
+        popover.set_pointing_to(rect)
+        popover.popup()
 
     def on_markdown_changed(self, textview):
         if self._markdown_render_timeout_id is not None:
