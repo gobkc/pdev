@@ -476,10 +476,11 @@ class NoteApp(Gtk.Application):
 
         category_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         category_box.append(category_header)
-        category_box.append(self.category_listview)
-
+        # category_box.append(self.category_listview)
         category_scrolled = Gtk.ScrolledWindow()
-        category_scrolled.set_child(category_box)
+        category_scrolled.set_vexpand(True)
+        category_scrolled.set_child(self.category_listview)
+        category_box.append(category_scrolled)
 
         self.note_liststore = Gio.ListStore.new(NoteItem)
         self.note_selection = Gtk.SingleSelection.new(self.note_liststore)
@@ -505,15 +506,21 @@ class NoteApp(Gtk.Application):
         note_header.append(note_spacer)
         note_header.append(note_add_btn)
         note_header.set_name("note-header")
+
         note_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         note_box.append(note_header)
-        note_box.append(self.note_listview)
+        # note_box.append(self.note_listview)
         note_scrolled = Gtk.ScrolledWindow()
-        note_scrolled.set_child(note_box)
+        note_scrolled.set_vexpand(True)
+        note_scrolled.set_child(self.note_listview)
+        note_box.append(note_scrolled)
 
         self.note_textbuffer = Gtk.TextBuffer()
         self.note_textview = Gtk.TextView(buffer=self.note_textbuffer)
         self.note_textview.set_editable(False)
+        self.note_textview.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.note_textview.set_overflow(Gtk.Overflow.HIDDEN)
+        self.note_textview.set_halign(Gtk.Align.FILL)
         note_scrolled_view = Gtk.ScrolledWindow()
         note_scrolled_view.set_child(self.note_textview)
         self.note_textview.set_left_margin(35)
@@ -521,8 +528,11 @@ class NoteApp(Gtk.Application):
         self.note_textview.set_top_margin(35)
         self.note_textview.set_bottom_margin(35)
         self.note_textview.set_vexpand(True)
-        self.note_textview.set_hexpand(True)
         note_scrolled_view.get_style_context().add_class("note-area")
+        note_scrolled_view.set_policy(
+            Gtk.PolicyType.NEVER,  # horizontal
+            Gtk.PolicyType.AUTOMATIC,  # vertical
+        )
         self.note_textview.set_name("note-textview")
 
         edit_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -698,11 +708,11 @@ class NoteApp(Gtk.Application):
         right_pane.set_end_child(note_scrolled_view)
         right_pane.set_position(-1)
         middle_pane = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
-        middle_pane.set_start_child(note_scrolled)
+        middle_pane.set_start_child(note_box)
         middle_pane.set_end_child(right_pane)
         middle_pane.set_position(300)
         main_pane = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
-        main_pane.set_start_child(category_scrolled)
+        main_pane.set_start_child(category_box)
         main_pane.set_end_child(middle_pane)
         main_pane.set_position(250)
 
@@ -1242,6 +1252,8 @@ class NoteApp(Gtk.Application):
         label.set_margin_bottom(5)
         label.set_margin_start(15)
         label.set_xalign(0.0)
+        label.set_wrap(False)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
         list_item.set_child(label)
         gesture = Gtk.GestureClick.new()
         gesture.set_button(3)
@@ -1267,6 +1279,8 @@ class NoteApp(Gtk.Application):
         label.set_margin_bottom(5)
         label.set_margin_start(15)
         label.set_xalign(0.0)
+        label.set_wrap(False)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
         list_item.set_child(label)
         gesture = Gtk.GestureClick.new()
         gesture.set_button(3)
