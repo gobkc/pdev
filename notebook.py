@@ -174,7 +174,6 @@ class NoteApp(Gtk.Application):
         dialog = Gtk.Dialog(transient_for=self.window, modal=True)
         dialog.set_title("Search Results")
         dialog.set_default_size(600, 400)
-
         content_area = dialog.get_content_area()
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         vbox.set_margin_top(10)
@@ -184,7 +183,7 @@ class NoteApp(Gtk.Application):
         content_area.append(vbox)
 
         # ---------------- 上部 Categories ----------------
-        cat_label = Gtk.Label(label="Categories")
+        cat_label = Gtk.Label(label="Categories:")
         cat_label.set_halign(Gtk.Align.START)
         vbox.append(cat_label)
 
@@ -212,6 +211,7 @@ class NoteApp(Gtk.Application):
 
         cat_listview = Gtk.ListView(model=cat_selection, factory=cat_factory)
         cat_listview.set_vexpand(True)
+        cat_listview.get_style_context().add_class("dialog")
 
         cat_scrolled = Gtk.ScrolledWindow()
         cat_scrolled.set_child(cat_listview)
@@ -237,7 +237,7 @@ class NoteApp(Gtk.Application):
         cat_listview.connect("activate", on_cat_activated)
 
         # ---------------- 下部 Notes ----------------
-        note_label = Gtk.Label(label="Notes")
+        note_label = Gtk.Label(label="Notes:")
         note_label.set_halign(Gtk.Align.START)
         vbox.append(note_label)
 
@@ -275,6 +275,7 @@ class NoteApp(Gtk.Application):
         note_factory.connect("bind", note_bind)
 
         note_listview = Gtk.ListView(model=note_selection, factory=note_factory)
+        note_listview.get_style_context().add_class("dialog")
         note_listview.set_vexpand(True)
 
         note_scrolled = Gtk.ScrolledWindow()
@@ -319,6 +320,7 @@ class NoteApp(Gtk.Application):
         dialog.add_buttons(
             "Cancel", Gtk.ResponseType.CANCEL, "Save", Gtk.ResponseType.OK
         )
+        dialog.get_style_context().add_class("dialog")
         box = dialog.get_content_area()
         grid = Gtk.Grid(
             column_spacing=10,
@@ -329,6 +331,7 @@ class NoteApp(Gtk.Application):
             margin_end=10,
         )
         box.append(grid)
+        box.get_style_context().add_class("dialog")
         grid.attach(Gtk.Label(label="Git Repo URL", halign=Gtk.Align.END), 0, 0, 1, 1)
         grid.attach(Gtk.Label(label="User / OAuth2", halign=Gtk.Align.END), 0, 1, 1, 1)
         grid.attach(
@@ -350,6 +353,9 @@ class NoteApp(Gtk.Application):
                 self.save_config()
                 self.run_git_async(self.clone_or_pull_repo)
                 self.run_git_async(self.load_notes)
+                self.console_log(
+                    f"save settings: repo->{repo_entry.get_text()}, user->{user_entry.get_text()}, token->{token_entry.get_text()}"
+                )
             d.destroy()
 
         dialog.connect("response", on_response)
@@ -372,6 +378,7 @@ class NoteApp(Gtk.Application):
                     new_path = os.path.join(GIT_DIR, cat_name)
                     os.makedirs(new_path, exist_ok=True)
                     self.load_notes()
+                    self.console_log(f"create a new category: {cat_name}")
             d.destroy()
 
         dialog.connect("response", on_response)
@@ -699,7 +706,7 @@ class NoteApp(Gtk.Application):
         main_pane.set_end_child(middle_pane)
         main_pane.set_position(250)
 
-        default_prompt = "Welcome to Git Notebook Console\nType 'help' for available shortcut key\n1.Ctrl-N\tCreate a new note \n2.Ctrl-+ \tCreate a new category \n3.Ctrl-S \tSave current note \n>"
+        default_prompt = "Welcome to Git Notebook Console\nType 'help' for available shortcut key\n1.Ctrl-N\tCreate a new note \n2.Ctrl-+ \tCreate a new category \n3.Ctrl-S \tSave current note \n"
         self.console_buffer = Gtk.TextBuffer()
         self.console_buffer.set_text(default_prompt)
         self.console_view = Gtk.TextView(buffer=self.console_buffer)
@@ -723,7 +730,13 @@ class NoteApp(Gtk.Application):
 
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(b"""
-        .main-window ,headerbar {
+        .dialog {
+            background-color: #26282b;
+        }
+        .dialog entry{
+            border-bottom: 1px solid black;
+        }
+        headerbar {
             background-color: #26282b;
             background-image: none;
             color: white;
@@ -1463,9 +1476,9 @@ class NoteApp(Gtk.Application):
         popover = Gtk.Popover()
         popover.set_has_arrow(False)
         popover.set_parent(widget)
+        popover.get_style_context().add_class("context_menu")
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-
         delete_btn = Gtk.Button(label="Delete Category")
         rename_btn = Gtk.Button(label="Rename Category")
 
@@ -1494,9 +1507,10 @@ class NoteApp(Gtk.Application):
         popover = Gtk.Popover()
         popover.set_has_arrow(False)
         popover.set_parent(widget)
+        popover.get_style_context().add_class("context_menu")
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-
+        box.get_style_context().add_class("rightmenu")
         delete_btn = Gtk.Button(label="Delete Note")
         rename_btn = Gtk.Button(label="Rename Note")
 
