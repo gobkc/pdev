@@ -528,6 +528,7 @@ class NoteApp(Gtk.Application):
         self.note_textview.set_top_margin(35)
         self.note_textview.set_bottom_margin(35)
         self.note_textview.set_vexpand(True)
+        self.note_textview.set_cursor_visible(False)
         note_scrolled_view.get_style_context().add_class("note-area")
         note_scrolled_view.set_policy(
             Gtk.PolicyType.NEVER,  # horizontal
@@ -696,6 +697,7 @@ class NoteApp(Gtk.Application):
         self.edit_box_markdown_text.set_bottom_margin(35)
         self.edit_box_markdown_text.set_name("markdown-text")
         self.edit_box_markdown_text_buffer.connect("changed", self.on_markdown_changed)
+        self.bind_markdown_indent_shortcuts()
         markdown_scrolled = Gtk.ScrolledWindow()
         markdown_scrolled.set_child(self.edit_box_markdown_text)
         markdown_scrolled.set_hexpand(True)
@@ -957,6 +959,40 @@ class NoteApp(Gtk.Application):
         .console-area textview {
             caret-color: #1bd66c;
         }
+        .code-block {
+            border: none;
+            outline: none;
+        }
+        .code-block textview {
+            border: none;
+            outline: none;
+            background-color: black;
+            color: #d4d4d4;
+            padding: 8px;
+            border-radius: 6px;
+        }
+        .code-block textview text ,.code-block GtkSourceView text{
+            background-color: black;
+        }
+        .code-block:focus {
+            outline: none;
+        }
+        .code-block textview:focus,.code-block,.code-block:focus {
+            outline: none;
+            box-shadow: none;
+        }
+        .markdown-separator {
+            -gtk-outline: none;
+            background: white;
+            margin-top: 10px;
+            margin-bottom: 10px;
+            min-height: 1px;
+            min-width: 500px;
+        }
+        .markdown-anchor{
+            padding: 15px;
+            background: rgba(255,255,255,0.1);
+        }
         """)
         display = Gdk.Display.get_default()
         Gtk.StyleContext.add_provider_for_display(
@@ -973,6 +1009,87 @@ class NoteApp(Gtk.Application):
         self.window.show()
         self.bind_global_shortcuts()
         self.bind_markdown_buttons()
+
+    def bind_markdown_indent_shortcuts(self):
+        controller = Gtk.EventControllerKey()
+        controller.connect("key-pressed", self.on_markdown_key_pressed)
+        self.edit_box_markdown_text.add_controller(controller)
+
+    def on_markdown_key_pressed(self, controller, keyval, keycode, state):
+        if keyval not in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
+            return False
+
+        buffer = self.edit_box_markdown_text_buffer
+        shift_pressed = bool(state & Gdk.ModifierType.SHIFT_MASK)
+
+        bounds = buffer.get_selection_bounds()
+
+        def indent_line(iter_line_start):
+            # 在行首插入4个空格
+            buffer.insert(iter_line_start, "    ")
+
+        def unindent_line(iter_line_start):
+            # 检查行首是否有4个空格或制表符，有则删除
+            iter_check = iter_line_start.copy()
+            iter_end = iter_line_start.copy()
+            if not iter_end.forward_chars(4):
+                # 不足4个字符，就取到行尾
+                pass
+            text = buffer.get_text(iter_line_start, iter_end, True)
+            if text.startswith("    "):
+                iter_del_end = iter_line_start.copy()
+                iter_del_end.forward_chars(4)
+                buffer.delete(iter_line_start, iter_del_end)
+            elif text.startswith("\t"):
+                iter_del_end = iter_line_start.copy()
+                iter_del_end.forward_char()
+                buffer.delete(iter_line_start, iter_del_end)
+
+        if bounds:
+            # 有选区，处理选区内的所有行
+            start, end = bounds[0].copy(), bounds[1].copy()
+            start_line = start.get_line()
+            end_line = end.get_line()
+
+            lines = list(range(start_line, end_line + 1))
+            # 缩进时倒序处理，避免行号偏移影响
+            if not shift_pressed:
+                lines = reversed(lines)
+
+            for line in lines:
+                result = buffer.get_iter_at_line(line)
+                # GTK4 中 get_iter_at_line 返回 (bool, Gtk.TextIter)
+                if isinstance(result, tuple):
+                    success, iter_line_start = result
+                    if not success:
+                        continue
+                else:
+                    iter_line_start = result
+
+                if shift_pressed:
+                    unindent_line(iter_line_start)
+                else:
+                    indent_line(iter_line_start)
+
+        else:
+            # 无选区，只处理光标所在行
+            insert_mark = buffer.get_insert()
+            iter_ = buffer.get_iter_at_mark(insert_mark)
+            line = iter_.get_line()
+            result = buffer.get_iter_at_line(line)
+            if isinstance(result, tuple):
+                success, iter_line_start = result
+                if not success:
+                    return True
+            else:
+                iter_line_start = result
+
+            if shift_pressed:
+                unindent_line(iter_line_start)
+            else:
+                indent_line(iter_line_start)
+
+        return True
 
     def bind_markdown_buttons(self):
         buffer = self.edit_box_markdown_text_buffer  # TextBuffer 已经是 buffer
@@ -1005,7 +1122,7 @@ class NoteApp(Gtk.Application):
             bounds = buffer.get_selection_bounds()
             dialog = Gtk.Dialog(title="Insert Link", transient_for=self.window)
             dialog.add_buttons(
-                "OK", Gtk.ResponseType.OK, "Cancel", Gtk.ResponseType.CANCEL
+                "Cancel", Gtk.ResponseType.CANCEL, "OK", Gtk.ResponseType.OK
             )
 
             content_area = dialog.get_content_area()
@@ -1038,7 +1155,7 @@ class NoteApp(Gtk.Application):
         def insert_table():
             dialog = Gtk.Dialog(title="Insert Table", transient_for=self.window)
             dialog.add_buttons(
-                "OK", Gtk.ResponseType.OK, "Cancel", Gtk.ResponseType.CANCEL
+                "Cancel", Gtk.ResponseType.CANCEL, "OK", Gtk.ResponseType.OK
             )
 
             content_area = dialog.get_content_area()
@@ -1659,70 +1776,129 @@ def render_markdown(buffer: Gtk.TextBuffer, textview: Gtk.TextView, text: str):
     code_block_language = None
 
     def render_inline(line):
-        # 内联代码
-        line = re.sub(
-            r"`([^`]+)`",
-            lambda m: (
-                buffer.insert_with_tags(
-                    buffer.get_end_iter(), m.group(1), tags["inline_code"]
-                )
-                or ""
-            ),
-            line,
-        )
-        # 粗体 **
-        line = re.sub(
-            r"\*\*([^\*]+)\*\*",
-            lambda m: (
-                buffer.insert_with_tags(buffer.get_end_iter(), m.group(1), tags["bold"])
-                or ""
-            ),
-            line,
-        )
-        # 斜体 *
-        line = re.sub(
-            r"\*([^\*]+)\*",
-            lambda m: (
-                buffer.insert_with_tags(
-                    buffer.get_end_iter(), m.group(1), tags["italic"]
-                )
-                or ""
-            ),
-            line,
-        )
-        # 下划线 __
-        line = re.sub(
-            r"__([^_]+)__",
-            lambda m: (
-                buffer.insert_with_tags(
-                    buffer.get_end_iter(), m.group(1), tags["underline"]
-                )
-                or ""
-            ),
-            line,
-        )
-        # 删除线 ~~
-        line = re.sub(
-            r"~~([^~]+)~~",
-            lambda m: (
-                buffer.insert_with_tags(
-                    buffer.get_end_iter(), m.group(1), tags["strikethrough"]
-                )
-                or ""
-            ),
-            line,
-        )
-        # 链接 [text](url)
-        line = re.sub(
-            r"\[([^\]]*(?:\[[^\]]*\][^\]]*)*)\]\([^)]+\)",
-            lambda m: (
-                buffer.insert_with_tags(buffer.get_end_iter(), m.group(1), tags["link"])
-                or ""
-            ),
-            line,
-        )
+        patterns = [
+            (r"`([^`]+)`", "inline_code"),
+            (r"\*\*([^\*]+)\*\*", "bold"),
+            (r"\*([^\*]+)\*", "italic"),
+            (r"__([^_]+)__", "underline"),
+            (r"~~([^~]+)~~", "strikethrough"),
+            (r"\[([^\]]+)\]\(([^)]+)\)", "link"),
+        ]
 
-        buffer.insert(buffer.get_end_iter(), line + "\n")
+        pos = 0
+        while pos < len(line):
+            match_obj = None
+            match_type = None
+
+            for pattern, tag_name in patterns:
+                m = re.search(pattern, line[pos:])
+                if m:
+                    start = pos + m.start()
+                    end = pos + m.end()
+                    if match_obj is None or start < match_obj[0]:
+                        match_obj = (start, end, m, tag_name)
+
+            if not match_obj:
+                buffer.insert(buffer.get_end_iter(), line[pos:] + "\n")
+                break
+
+            start, end, m, tag_name = match_obj
+
+            # 插入普通文本
+            if start > pos:
+                buffer.insert(buffer.get_end_iter(), line[pos:start])
+
+            content = m.group(1)
+
+            if tag_name == "link":
+                buffer.insert_with_tags(buffer.get_end_iter(), content, tags["link"])
+            else:
+                buffer.insert_with_tags(buffer.get_end_iter(), content, tags[tag_name])
+
+            pos = end
+
+        buffer.insert(buffer.get_end_iter(), "\n")
+
+    # ----------------- 表格解析相关 -----------------
+    def is_table_row(line):
+        """判断是否为表格行（以|开头和结尾，且至少有一个|分隔符）"""
+        stripped = line.strip()
+        if not stripped.startswith("|") or not stripped.endswith("|"):
+            return False
+        # 简单检查：至少有两个|（包括首尾）
+        return stripped.count("|") >= 2
+
+    def is_separator_row(line):
+        """判断是否为分隔行（如 |---|---| ）"""
+        stripped = line.strip()
+        if not stripped.startswith("|") or not stripped.endswith("|"):
+            return False
+        # 去除首尾|，检查每个单元格是否包含---
+        cells = [cell.strip() for cell in stripped[1:-1].split("|")]
+        return all("---" in cell for cell in cells)
+
+    def parse_table_row(row):
+        """将表格行拆分为单元格列表（去除首尾|）"""
+        stripped = row.strip()
+        # 去掉首尾的|
+        if stripped.startswith("|"):
+            stripped = stripped[1:]
+        if stripped.endswith("|"):
+            stripped = stripped[:-1]
+        cells = [cell.strip() for cell in stripped.split("|")]
+        return cells
+
+    def create_table_widget(headers, rows_data):
+        """创建 Gtk.ColumnView 表格部件"""
+
+        # 定义行对象
+        class TableRow(GObject.Object):
+            values = GObject.Property(type=object)  # 存储列表
+
+            def __init__(self, values):
+                super().__init__()
+                self.values = values
+
+        store = Gio.ListStore.new(TableRow)
+        for row in rows_data:
+            store.append(TableRow(row))
+
+        selection = Gtk.SingleSelection(model=store)
+        column_view = Gtk.ColumnView(model=selection)
+        column_view.set_hexpand(True)
+        column_view.set_vexpand(False)  # 避免表格过度扩展，占用太多空间
+
+        # 为每一列创建 ColumnViewColumn
+        for col_idx, header in enumerate(headers):
+            factory = Gtk.SignalListItemFactory()
+
+            def setup_label(factory, list_item):
+                label = Gtk.Label()
+                label.set_xalign(0)
+                label.set_margin_start(8)
+                label.set_margin_end(8)
+                label.set_margin_top(4)
+                label.set_margin_bottom(4)
+                list_item.set_child(label)
+
+            def bind_cell(factory, list_item, idx=col_idx):
+                row = list_item.get_item()
+                if row is None:
+                    return
+                label = list_item.get_child()
+                # 确保索引存在
+                if idx < len(row.values):
+                    label.set_text(str(row.values[idx]))
+                else:
+                    label.set_text("")
+
+            factory.connect("setup", setup_label)
+            factory.connect("bind", bind_cell)
+
+            col = Gtk.ColumnViewColumn(title=header, factory=factory)
+            column_view.append_column(col)
+
+        return column_view
 
     i = 0
     while i < len(lines):
@@ -1747,16 +1923,15 @@ def render_markdown(buffer: Gtk.TextBuffer, textview: Gtk.TextView, text: str):
                 anchor = buffer.create_child_anchor(buffer.get_end_iter())
                 scrolled_window = Gtk.ScrolledWindow()
                 scrolled_window.set_hexpand(True)
-                scrolled_window.set_vexpand(
-                    False
-                )  # 不垂直扩展，让代码块根据内容调整高度
-                scrolled_window.set_propagate_natural_height(True)  # 根据内容调整高度
-                scrolled_window.set_max_content_height(400)  # 设置最大高度
-                scrolled_window.set_min_content_height(400)  # 设置最小高度
-                scrolled_window.set_min_content_width(600)  # 设置最小高度
-                scrolled_window.set_has_frame(True)  # 添加边框
+                scrolled_window.set_vexpand(False)
+                scrolled_window.set_propagate_natural_height(True)
+                scrolled_window.set_can_focus(False)
+                scrolled_window.set_hexpand(True)
+                scrolled_window.set_vexpand(False)
+                scrolled_window.set_has_frame(False)
                 scrolled_window.set_margin_top(5)
                 scrolled_window.set_margin_bottom(5)
+                scrolled_window.get_style_context().add_class("code-block")
                 lang_manager = GtkSource.LanguageManager.get_default()
                 source_buffer = GtkSource.Buffer()
                 if code_block_language:
@@ -1766,13 +1941,21 @@ def render_markdown(buffer: Gtk.TextBuffer, textview: Gtk.TextView, text: str):
                 if scheme:
                     source_buffer.set_style_scheme(scheme)
                 source_buffer.set_text("\n".join(code_content))
+                code_text = "\n".join(code_content)
+                source_buffer.set_text(code_text)
+                line_count = code_text.count("\n") + 1
+                line_height = 20
+                max_height = 400
+                calculated_height = min(line_count * line_height + 20, max_height)
+                scrolled_window.set_size_request(600, calculated_height)
                 source_view = GtkSource.View.new_with_buffer(source_buffer)
                 source_view.set_monospace(True)
                 source_view.set_show_line_numbers(True)
                 source_view.set_hexpand(True)
-                source_view.set_vexpand(True)  # 让视图在 ScrolledWindow 中扩展
-                source_view.set_editable(False)  # 预览模式不可编辑
-                source_view.set_wrap_mode(Gtk.WrapMode.NONE)  # 代码块不换行
+                source_view.set_vexpand(False)
+                source_view.set_editable(False)
+                source_view.set_can_focus(False)
+                source_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
                 source_view.show()
                 scrolled_window.set_child(source_view)
                 scrolled_window.show()
@@ -1789,10 +1972,48 @@ def render_markdown(buffer: Gtk.TextBuffer, textview: Gtk.TextView, text: str):
                 i += 1
                 continue
 
+        # ---------- 表格检测 ----------
+        # 仅在非代码块中检测表格
+        if not in_code_block and is_table_row(line):
+            # 收集连续表格行
+            table_lines = []
+            j = i
+            while j < len(lines) and is_table_row(lines[j]):
+                table_lines.append(lines[j].rstrip("\n"))
+                j += 1
+            # 至少需要两行（表头+分隔行）
+            if len(table_lines) >= 2 and is_separator_row(table_lines[1]):
+                # 解析表格
+                headers = parse_table_row(table_lines[0])
+                # 确保分隔行有效（不需要内容，只校验格式）
+                rows = []
+                for k in range(2, len(table_lines)):
+                    cells = parse_table_row(table_lines[k])
+                    # 补齐列数
+                    if len(cells) < len(headers):
+                        cells += [""] * (len(headers) - len(cells))
+                    rows.append(cells[: len(headers)])
+                # 创建表格部件并嵌入
+                anchor = buffer.create_child_anchor(start_iter)
+                table_widget = create_table_widget(headers, rows)
+                textview.add_child_at_anchor(table_widget, anchor)
+                buffer.insert(buffer.get_end_iter(), "\n")
+                # 跳过已处理的行
+                i = j
+                continue
+            # 如果不是表格块，按普通文本处理
+            # 注意：这里 fall through 到后面的普通文本处理
+
         # 分割线
         if re.match(r"^([-*_]{3,})$", stripped):
             anchor = buffer.create_child_anchor(start_iter)
             separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            w = textview.get_allocated_width() - 100
+            if w <= 1:
+                w = textview.get_allocated_width()
+            separator.set_size_request(w, 2)
+            separator.set_hexpand(True)
+            separator.get_style_context().add_class("markdown-separator")
             separator.show()
             textview.add_child_at_anchor(separator, anchor)
             buffer.insert(buffer.get_end_iter(), "\n")
@@ -1813,6 +2034,11 @@ def render_markdown(buffer: Gtk.TextBuffer, textview: Gtk.TextView, text: str):
             content = m.group(1)
             anchor = buffer.create_child_anchor(start_iter)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            w = textview.get_allocated_width() - 100
+            if w <= 1:
+                w = textview.get_allocated_width()
+            box.set_size_request(w, 2)
+            box.get_style_context().add_class("markdown-anchor")
             box.set_margin_start(20)
             box.set_margin_top(2)
             box.set_margin_bottom(2)
