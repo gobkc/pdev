@@ -116,6 +116,11 @@ class NoteApp(Gtk.Application):
                 self.notes[cat] = []
             for f in files:
                 self.notes[cat].append(os.path.join(root, f))
+        self.categories.sort(
+            key=lambda cat: os.path.getmtime(os.path.join(GIT_DIR, cat)), reverse=True
+        )
+        for cat in self.notes:
+            self.notes[cat].sort(key=lambda path: os.path.getmtime(path), reverse=True)
         GLib.idle_add(self.update_category_list)
         if self.categories:
             self.current_category = self.categories[0]
@@ -343,6 +348,10 @@ class NoteApp(Gtk.Application):
         grid.attach(repo_entry, 1, 0, 1, 1)
         grid.attach(user_entry, 1, 1, 1, 1)
         grid.attach(token_entry, 1, 2, 1, 1)
+        repo_entry.connect("activate", lambda e: dialog.response(Gtk.ResponseType.OK))
+        user_entry.connect("activate", lambda e: dialog.response(Gtk.ResponseType.OK))
+        token_entry.connect("activate", lambda e: dialog.response(Gtk.ResponseType.OK))
+        dialog.set_default_widget(dialog.get_widget_for_response(Gtk.ResponseType.OK))
         dialog.show()
 
         def on_response(d, response_id):
@@ -353,8 +362,9 @@ class NoteApp(Gtk.Application):
                 self.save_config()
                 self.run_git_async(self.clone_or_pull_repo)
                 self.run_git_async(self.load_notes)
+                now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self.console_log(
-                    f"save settings: repo->{repo_entry.get_text()}, user->{user_entry.get_text()}, token->{token_entry.get_text()}"
+                    f"{now_time}save settings: repo->{repo_entry.get_text()}, user->{user_entry.get_text()}, token->{token_entry.get_text()}"
                 )
             d.destroy()
 
@@ -365,9 +375,12 @@ class NoteApp(Gtk.Application):
         dialog.add_buttons(
             "Cancel", Gtk.ResponseType.CANCEL, "Create", Gtk.ResponseType.OK
         )
+        dialog.set_default_response(Gtk.ResponseType.OK)
         box = dialog.get_content_area()
         entry = Gtk.Entry()
+        entry.connect("activate", lambda e: dialog.response(Gtk.ResponseType.OK))
         entry.set_placeholder_text("Enter new category name")
+        dialog.set_default_widget(dialog.get_widget_for_response(Gtk.ResponseType.OK))
         box.append(entry)
         dialog.show()
 
@@ -378,7 +391,8 @@ class NoteApp(Gtk.Application):
                     new_path = os.path.join(GIT_DIR, cat_name)
                     os.makedirs(new_path, exist_ok=True)
                     self.load_notes()
-                    self.console_log(f"create a new category: {cat_name}")
+                    now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    self.console_log(f"{now_time} create a new category: {cat_name}")
             d.destroy()
 
         dialog.connect("response", on_response)
@@ -386,9 +400,9 @@ class NoteApp(Gtk.Application):
     def on_add_note_clicked(self, button):
         self.edit_box_title_text.set_text("")
         self.edit_box_markdown_text_buffer.set_text("")
-        self.edit_box_time_text_buffer.set_text(
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        )
+        now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.edit_box_time_text_buffer.set_text(now_time)
+        self.console_log(f"{now_time} create a empty note")
 
     def on_activate(self, app):
         self.load_config()
@@ -412,6 +426,7 @@ class NoteApp(Gtk.Application):
         self.search_entry = Gtk.Entry()
         self.search_entry.set_placeholder_text("Search...")
         self.search_entry.set_width_chars(20)
+        self.search_entry.connect("activate", self.on_search_icon_activated)
         toolbar.append(self.search_entry)
         self.search_button = Gtk.Button()
         toolbar.append(self.search_button)
@@ -1124,7 +1139,6 @@ class NoteApp(Gtk.Application):
             dialog.add_buttons(
                 "Cancel", Gtk.ResponseType.CANCEL, "OK", Gtk.ResponseType.OK
             )
-
             content_area = dialog.get_content_area()
             name_entry = Gtk.Entry()
             name_entry.set_placeholder_text("Link Text")
@@ -1132,7 +1146,12 @@ class NoteApp(Gtk.Application):
             url_entry.set_placeholder_text("URL")
             content_area.append(name_entry)
             content_area.append(url_entry)
-
+            url_entry.connect(
+                "activate", lambda e: dialog.response(Gtk.ResponseType.OK)
+            )
+            dialog.set_default_widget(
+                dialog.get_widget_for_response(Gtk.ResponseType.OK)
+            )
             dialog.show()
 
             # GTK4 处理 response 信号
@@ -1165,6 +1184,12 @@ class NoteApp(Gtk.Application):
             cols_entry.set_placeholder_text("Number of columns")
             content_area.append(rows_entry)
             content_area.append(cols_entry)
+            cols_entry.connect(
+                "activate", lambda e: dialog.response(Gtk.ResponseType.OK)
+            )
+            dialog.set_default_widget(
+                dialog.get_widget_for_response(Gtk.ResponseType.OK)
+            )
 
             dialog.show()
 
@@ -1275,11 +1300,16 @@ class NoteApp(Gtk.Application):
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
 
-        # 只刷新当前 category 的 note 列表，而不是整个 load_notes
+        # 刷新当前分类的笔记列表，并排序
         self.notes[self.current_category] = [
             os.path.join(GIT_DIR, self.current_category, f)
             for f in os.listdir(os.path.join(GIT_DIR, self.current_category))
+            if os.path.isfile(os.path.join(GIT_DIR, self.current_category, f))
         ]
+        # 按修改时间排序（最近修改在前）
+        self.notes[self.current_category].sort(
+            key=lambda path: os.path.getmtime(path), reverse=True
+        )
         self.update_note_list(self.current_category)
 
         # 选中刚保存的 note
@@ -1289,8 +1319,8 @@ class NoteApp(Gtk.Application):
                 self.current_note = item.path
                 self.update_note_content(item.path)
                 break
-
-        self.console_log(f"Saved note: {file_path}")
+        now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.console_log(f"{now_time} Saved note: {file_path}")
 
     def on_sync_button_clicked(self, button):
         self.on_save_markdown_clicked(None)  # 先保存当前编辑
@@ -1433,13 +1463,14 @@ class NoteApp(Gtk.Application):
 
         def on_response(d, response):
             if response == Gtk.ResponseType.OK:
+                now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 category_path = os.path.join(GIT_DIR, category_name)
                 try:
                     shutil.rmtree(category_path)
-                    self.console_log(f"delete category: {category_name}")
+                    self.console_log(f"{now_time} delete category: {category_name}")
                     self.load_notes()
                 except Exception as e:
-                    self.console_log(f"delete category failed: {e}")
+                    self.console_log(f"{now_time} delete category failed: {e}")
             d.destroy()
 
         dialog.connect("response", on_response)
@@ -1473,7 +1504,7 @@ class NoteApp(Gtk.Application):
         def on_response(d, response):
             if response == Gtk.ResponseType.OK:
                 new_name = entry.get_text().strip()
-
+                now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 if new_name and new_name != category_name:
                     old_path = os.path.join(GIT_DIR, category_name)
                     new_path = os.path.join(GIT_DIR, new_name)
@@ -1482,13 +1513,13 @@ class NoteApp(Gtk.Application):
                         os.rename(old_path, new_path)
 
                         self.console_log(
-                            f"rename category: {category_name} -> {new_name}"
+                            f"{now_time} rename category: {category_name} -> {new_name}"
                         )
 
                         self.load_notes()
 
                     except Exception as e:
-                        self.console_log(f"rename category failed: {e}")
+                        self.console_log(f"{now_time} rename category failed: {e}")
 
             d.destroy()
 
@@ -1515,16 +1546,17 @@ class NoteApp(Gtk.Application):
         content_area.append(label)
 
         def on_response(d, response):
+            now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if response == Gtk.ResponseType.OK:
                 try:
                     os.remove(note_path)
 
-                    self.console_log(f"delete note: {note_name}")
+                    self.console_log(f"{now_time} delete note: {note_name}")
 
                     self.load_notes()
 
                 except Exception as e:
-                    self.console_log(f"delete note failed: {e}")
+                    self.console_log(f"{now_time} delete note failed: {e}")
 
             d.destroy()
 
@@ -1567,16 +1599,18 @@ class NoteApp(Gtk.Application):
                         os.path.dirname(note_path),
                         new_name,
                     )
-
+                    now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     try:
                         os.rename(note_path, new_path)
 
-                        self.console_log(f"rename note: {old_name} -> {new_name}")
+                        self.console_log(
+                            f"{now_time} rename note: {old_name} -> {new_name}"
+                        )
 
                         self.load_notes()
 
                     except Exception as e:
-                        self.console_log(f"rename note failed: {e}")
+                        self.console_log(f"{now_time} rename note failed: {e}")
 
             d.destroy()
 
