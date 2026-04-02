@@ -27,6 +27,7 @@ class MainWindow(Gtk.ApplicationWindow):
             "metadata": {"author": "user", "count": 42, "nullable": None},
         }
         self.json_tree = JsonTree(sample_data)
+        self.json_tree.set_theme("dark")
         self.json_tree.add_css_class("tree")
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(b"""
@@ -34,6 +35,7 @@ class MainWindow(Gtk.ApplicationWindow):
             padding: 15px;
             background-image: none;
             background: black;
+            color:white;
         }
         """)
         display = Gdk.Display.get_default()
