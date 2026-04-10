@@ -22,3 +22,6 @@ install:
 
 debug:
 	GTK_DEBUG=interactive python3 notebook.py
+
+module:
+	python3 -m ui.main
